@@ -309,11 +309,16 @@ function fmt(v, unit=''){
 }
 
 function cardVisual(m){
-  if(m.thumbnail_path){
-    return `<div class="thumb"><img src="/api/models/${m.id}/thumbnail" alt="${m.name}" loading="lazy"
-      onerror="this.closest('.thumb').outerHTML = ${JSON.stringify('<div class=\"dims\">')} + window.dimSVG(${m.size_x}, ${m.size_y}, ${m.size_z}) + '</div>'"></div>`;
-  }
-  return `<div class="dims">${dimSVG(m.size_x, m.size_y, m.size_z)}</div>`;
+    if (m.thumbnail_path){
+        return `
+        <div class="thumb">
+            <img src="/api/models/${m.id}/thumbnail"
+                 alt="${m.name}"
+                 loading="lazy">
+        </div>`;
+    }
+
+    return `<div class="dims">${dimSVG(m.size_x,m.size_y,m.size_z)}</div>`;
 }
 
 function renderCard(m){
@@ -336,6 +341,15 @@ function renderCard(m){
     <span class="qc-badge ${m.is_watertight ? 'qc-ok' : 'qc-warn'}"
           title="${m.is_watertight ? 'Mesh fermé — mesures fiables' : 'Mesh non fermé — mesures approximatives'}"></span>
   `;
+  
+  const img = el.querySelector("img");
+
+  if (img) {
+      img.onerror = () => {
+          img.closest(".thumb").outerHTML =
+              `<div class="dims">${dimSVG(m.size_x, m.size_y, m.size_z)}</div>`;
+      };
+  }
   el.addEventListener('click', () => openDetail(m));
   el.addEventListener('keypress', (e) => { if(e.key === 'Enter') openDetail(m); });
   return el;

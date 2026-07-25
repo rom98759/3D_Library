@@ -64,6 +64,14 @@ def get_model(model_id: int):
         raise HTTPException(status_code=404, detail="Modèle introuvable")
     return dict(row)
 
+@app.get("/api/models/{model_id}/thumbnail")
+def get_thumbnail(model_id: int):
+    thumbnail = DB_PATH.parent / "_thumbnails" / f"{model_id}.png"
+
+    if not thumbnail.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail introuvable")
+
+    return FileResponse(thumbnail)
 
 @app.get("/api/stats")
 def get_stats():
