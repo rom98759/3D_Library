@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Work+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --blue-deep:   #0F2A44;
+    --blue-panel:  #16385A;
+    --blue-panel2: #1C4468;
+    --line-faint:  rgba(255,255,255,0.07);
+    --line-mid:    rgba(255,255,255,0.14);
+    --ink:         #E9EFF3;
+    --ink-dim:     #90A9BE;
+    --chalk-cyan:  #6FC7DA;
+    --tape-yellow: #F2C14E;
+    --warn-red:    #E2725B;
+    --ok-green:    #7FBF8F;
+    --radius: 2px;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0; padding:0; min-height:100%;
+    background:
+      linear-gradient(var(--line-faint) 1px, transparent 1px) 0 0/32px 32px,
+      linear-gradient(90deg, var(--line-faint) 1px, transparent 1px) 0 0/32px 32px,
+      var(--blue-deep);
+    color:var(--ink);
+    font-family:'Work Sans', sans-serif;
+  }
+
+  /* ---------- title block ---------- */
+  header{
+    border-bottom:1px solid var(--line-mid);
+    padding:22px 32px 18px;
+    display:flex; align-items:flex-end; justify-content:space-between;
+    flex-wrap:wrap; gap:16px;
+  }
+  .title-block h1{
+    font-family:'Oswald', sans-serif;
+    font-weight:700;
+    font-size:28px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    margin:0;
+  }
+  .title-block h1 span{ color:var(--chalk-cyan); }
+  .title-block .sub{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    color:var(--ink-dim);
+    letter-spacing:0.04em;
+    margin-top:4px;
+  }
+
+  .stats{
+    display:flex; gap:22px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+  }
+  .stats .stat{ text-align:right; }
+  .stats .stat .val{ font-size:18px; color:var(--tape-yellow); font-weight:700; }
+  .stats .stat .lbl{ color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.08em; font-size:10px; }
+
+  /* ---------- search bar ---------- */
+  .toolbar{
+    padding:18px 32px;
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+    border-bottom:1px dashed var(--line-mid);
+  }
+  .query-field{
+    display:flex; align-items:center; gap:8px;
+    background:var(--blue-panel);
+    border:1px solid var(--line-mid);
+    border-radius:var(--radius);
+    padding:8px 14px;
+    flex:1; min-width:240px;
+  }
+  .query-field label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px; color:var(--chalk-cyan); text-transform:uppercase; letter-spacing:0.06em;
+  }
+  .query-field input{
+    flex:1; background:none; border:none; outline:none;
+    color:var(--ink); font-family:'Work Sans', sans-serif; font-size:14px;
+  }
+  .query-field input::placeholder{ color:var(--ink-dim); }
+
+  /* ---------- grid ---------- */
+  main{ padding:28px 32px 60px; }
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));
+    gap:18px;
+  }
+
+  .card{
+    background:var(--blue-panel);
+    border:1px solid var(--line-mid);
+    border-radius:var(--radius);
+    padding:16px;
+    cursor:pointer;
+    position:relative;
+    transition:border-color .15s ease, transform .15s ease;
+  }
+  .card::before{ /* corner cut-mark, laser-template feel */
+    content:"";
+    position:absolute; top:8px; right:8px;
+    width:6px; height:6px;
+    border-top:1px solid var(--ink-dim);
+    border-right:1px solid var(--ink-dim);
+    opacity:.5;
+  }
+  .card:hover{
+    border-color:var(--chalk-cyan);
+    transform:translateY(-2px);
+  }
+  .card:focus-visible{ outline:2px solid var(--tape-yellow); outline-offset:2px; }
+
+  .card .name{
+    font-family:'Oswald', sans-serif;
+    font-size:16px; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.02em;
+    margin:0 0 10px;
+  }
+
+  /* dimension diagram — the signature element */
+  .dims{
+    display:flex; align-items:center; justify-content:center;
+    padding:14px 0 16px;
+  }
+  .dims svg{ width:100%; height:70px; }
+  .dims text{
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px;
+    fill:var(--chalk-cyan);
+  }
+  .dims line, .dims path{
+    stroke:var(--ink-dim);
+    stroke-width:1;
+  }
+  .dims .box{ stroke:var(--ink); stroke-width:1.4; fill:none; }
+
+  .meta-row{
+    display:flex; justify-content:space-between;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px; color:var(--ink-dim);
+    border-top:1px dashed var(--line-mid);
+    padding-top:10px; margin-top:4px;
+  }
+  .meta-row .v{ color:var(--ink); }
+
+  .qc-badge{
+    position:absolute; bottom:14px; right:14px;
+    width:8px; height:8px; border-radius:50%;
+  }
+  .qc-ok{ background:var(--ok-green); box-shadow:0 0 6px var(--ok-green); }
+  .qc-warn{ background:var(--warn-red); box-shadow:0 0 6px var(--warn-red); }
+
+  /* thumbnail (real render) */
+  .thumb{
+    width:100%; height:120px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--blue-deep);
+    border:1px solid var(--line-faint);
+    border-radius:var(--radius);
+    overflow:hidden;
+    margin-bottom:10px;
+  }
+  .thumb img{ width:100%; height:100%; object-fit:contain; }
+
+  .category-eyebrow{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--chalk-cyan);
+    margin-bottom:4px;
+  }
+
+  .tags{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; }
+  .tag{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px; color:var(--ink-dim);
+    border:1px solid var(--line-mid);
+    border-radius:var(--radius);
+    padding:2px 6px;
+  }
+
+  .actions{ display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; }
+  .actions button{
+    background:none; border:1px solid var(--line-mid);
+    color:var(--ink); font-family:'JetBrains Mono', monospace; text-transform:uppercase;
+    font-size:11px; padding:8px 14px; border-radius:var(--radius); cursor:pointer;
+  }
+  .actions button.primary{ border-color:var(--tape-yellow); color:var(--tape-yellow); }
+  .actions button:hover{ border-color:var(--chalk-cyan); color:var(--chalk-cyan); }
+  .actions button.primary:hover{ border-color:var(--tape-yellow); color:var(--tape-yellow); background:rgba(242,193,78,0.08); }
+  .action-msg{
+    font-family:'JetBrains Mono', monospace; font-size:11px;
+    margin-top:10px; color:var(--ink-dim); min-height:14px;
+  }
+  .action-msg.error{ color:var(--warn-red); }
+  .action-msg.ok{ color:var(--ok-green); }
+
+  /* ---------- empty state ---------- */
+  .empty{
+    font-family:'JetBrains Mono', monospace;
+    color:var(--ink-dim);
+    border:1px dashed var(--line-mid);
+    padding:40px; text-align:center; border-radius:var(--radius);
+  }
+  .empty .code{ color:var(--tape-yellow); }
+
+  /* ---------- detail overlay ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(6,16,26,0.72);
+    display:flex; align-items:center; justify-content:center;
+    padding:24px; z-index:10;
+  }
+  .overlay.hidden{ display:none; }
+  .detail{
+    background:var(--blue-panel2);
+    border:1px solid var(--line-mid);
+    border-radius:var(--radius);
+    max-width:460px; width:100%;
+    padding:26px;
+  }
+  .detail h2{
+    font-family:'Oswald', sans-serif; text-transform:uppercase;
+    font-size:20px; margin:0 0 4px;
+  }
+  .detail .path{
+    font-family:'JetBrains Mono', monospace; font-size:11px;
+    color:var(--ink-dim); word-break:break-all; margin-bottom:16px;
+  }
+  .detail dl{
+    display:grid; grid-template-columns:auto 1fr; gap:8px 16px;
+    font-family:'JetBrains Mono', monospace; font-size:12px;
+  }
+  .detail dt{ color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.04em; }
+  .detail dt::after{ content:":"; }
+  .detail dd{ margin:0; color:var(--ink); }
+  .detail .close{
+    margin-top:20px; background:none; border:1px solid var(--line-mid);
+    color:var(--ink); font-family:'JetBrains Mono', monospace; text-transform:uppercase;
+    font-size:11px; padding:8px 14px; border-radius:var(--radius); cursor:pointer;
+  }
+  .detail .close:hover{ border-color:var(--tape-yellow); color:var(--tape-yellow); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-block">
+    <h1>3D <span>Library</span></h1>
+    <div class="sub">CATALOGUE — SCAN AUTOMATIQUE — V1</div>
+  </div>
+  <div class="stats" id="stats">
+    <div class="stat"><div class="val">—</div><div class="lbl">Modèles</div></div>
+    <div class="stat"><div class="val">—</div><div class="lbl">Poids est. (g)</div></div>
+    <div class="stat"><div class="val">—</div><div class="lbl">Temps est. (h)</div></div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="query-field">
+    <label for="q">Rech.</label>
+    <input id="q" type="text" placeholder="nom, tag, fichier d'origine…">
+  </div>
+</div>
+
+<main>
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="overlay hidden" id="overlay">
+  <div class="detail" id="detail"></div>
+</div>
+
+<script>
+const grid = document.getElementById('grid');
+const qInput = document.getElementById('q');
+const statsEl = document.getElementById('stats');
+const overlay = document.getElementById('overlay');
+const detail = document.getElementById('detail');
+
+function dimSVG(sx, sy, sz){
+  if(sx == null){
+    return `<svg viewBox="0 0 200 70"><text x="100" y="38" text-anchor="middle" fill="#90A9BE">dimensions non analysées</text></svg>`;
+  }
+  return `
+  <svg viewBox="0 0 200 70">
+    <rect class="box" x="40" y="15" width="90" height="40"/>
+    <line x1="150" y1="15" x2="150" y2="55"/>
+    <line x1="40" y1="60" x2="130" y2="60"/>
+    <text x="85" y="12">${sx} mm</text>
+    <text x="160" y="38">${sz} mm</text>
+    <text x="85" y="70">${sy} mm</text>
+  </svg>`;
+}
+
+function fmt(v, unit=''){
+  if(v === null || v === undefined) return '—';
+  return `${v}${unit}`;
+}
+
+function cardVisual(m){
+  if(m.thumbnail_path){
+    return `<div class="thumb"><img src="/api/models/${m.id}/thumbnail" alt="${m.name}" loading="lazy"
+      onerror="this.closest('.thumb').outerHTML = ${JSON.stringify('<div class=\"dims\">')} + window.dimSVG(${m.size_x}, ${m.size_y}, ${m.size_z}) + '</div>'"></div>`;
+  }
+  return `<div class="dims">${dimSVG(m.size_x, m.size_y, m.size_z)}</div>`;
+}
+
+function renderCard(m){
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.tabIndex = 0;
+  const tagsHtml = (m.tags ? m.tags.split(',').filter(Boolean) : [])
+    .slice(0, 4)
+    .map(t => `<span class="tag">${t}</span>`)
+    .join('');
+  el.innerHTML = `
+    ${m.category ? `<div class="category-eyebrow">${m.category}</div>` : ''}
+    <div class="name">${m.name}</div>
+    ${cardVisual(m)}
+    <div class="meta-row">
+      <span>Volume <span class="v">${fmt(m.volume, ' cm³')}</span></span>
+      <span>Poids <span class="v">${fmt(m.estimated_weight_g, ' g')}</span></span>
+    </div>
+    ${tagsHtml ? `<div class="tags">${tagsHtml}</div>` : ''}
+    <span class="qc-badge ${m.is_watertight ? 'qc-ok' : 'qc-warn'}"
+          title="${m.is_watertight ? 'Mesh fermé — mesures fiables' : 'Mesh non fermé — mesures approximatives'}"></span>
+  `;
+  el.addEventListener('click', () => openDetail(m));
+  el.addEventListener('keypress', (e) => { if(e.key === 'Enter') openDetail(m); });
+  return el;
+}
+window.dimSVG = dimSVG;
+
+async function callAction(endpoint, msgEl){
+  msgEl.textContent = 'Lancement…';
+  msgEl.className = 'action-msg';
+  try{
+    const r = await fetch(endpoint, { method: 'POST' });
+    const data = await r.json();
+    if(!r.ok){
+      msgEl.textContent = data.detail || 'Erreur';
+      msgEl.className = 'action-msg error';
+      return;
+    }
+    msgEl.textContent = data.folder ? `Dossier ouvert : ${data.folder}` : 'Ouvert dans OrcaSlicer';
+    msgEl.className = 'action-msg ok';
+  }catch(e){
+    msgEl.textContent = 'Impossible de contacter le serveur local';
+    msgEl.className = 'action-msg error';
+  }
+}
+
+function openDetail(m){
+  const tagsHtml = (m.tags ? m.tags.split(',').filter(Boolean) : [])
+    .map(t => `<span class="tag">${t}</span>`)
+    .join('');
+
+  detail.innerHTML = `
+    ${m.category ? `<div class="category-eyebrow">${m.category}</div>` : ''}
+    <h2>${m.name}</h2>
+    <div class="path">${m.path}</div>
+    ${m.thumbnail_path ? `<div class="thumb" style="height:160px;margin:14px 0;"><img src="/api/models/${m.id}/thumbnail" alt="${m.name}"></div>` : ''}
+    <div class="dims" style="margin:4px 0 10px;">${dimSVG(m.size_x, m.size_y, m.size_z)}</div>
+    <dl>
+      <dt>Dimensions</dt><dd>${fmt(m.size_x)} × ${fmt(m.size_y)} × ${fmt(m.size_z)} mm</dd>
+      <dt>Volume</dt><dd>${fmt(m.volume, ' cm³')}</dd>
+      <dt>Matériau</dt><dd>${m.material || '—'}</dd>
+      <dt>Poids estimé</dt><dd>${fmt(m.estimated_weight_g, ' g')}</dd>
+      <dt>Temps estimé</dt><dd>${fmt(m.estimated_print_time_h, ' h')}</dd>
+      <dt>Mesh fermé</dt><dd>${m.is_watertight ? 'oui' : 'non (estimation approx.)'}</dd>
+      <dt>Archive source</dt><dd>${m.source_archive || '—'}</dd>
+      <dt>Ajouté le</dt><dd>${(m.added_at || '').split('T')[0]}</dd>
+    </dl>
+    ${tagsHtml ? `<div class="tags">${tagsHtml}</div>` : ''}
+    <div class="actions">
+      <button class="primary" id="btn-orca">Ouvrir dans OrcaSlicer</button>
+      <button id="btn-folder">Ouvrir le dossier</button>
+      <button class="close">Fermer</button>
+    </div>
+    <div class="action-msg" id="action-msg"></div>
+  `;
+  const msgEl = detail.querySelector('#action-msg');
+  detail.querySelector('#btn-orca').addEventListener('click', () => callAction(`/api/models/${m.id}/open-orcaslicer`, msgEl));
+  detail.querySelector('#btn-folder').addEventListener('click', () => callAction(`/api/models/${m.id}/open-folder`, msgEl));
+  detail.querySelector('.close').addEventListener('click', () => overlay.classList.add('hidden'));
+  overlay.classList.remove('hidden');
+}
+overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.classList.add('hidden'); });
+
+async function loadStats(){
+  const r = await fetch('/api/stats');
+  const s = await r.json();
+  const nodes = statsEl.querySelectorAll('.stat .val');
+  nodes[0].textContent = s.total_models;
+  nodes[1].textContent = s.total_weight_g;
+  nodes[2].textContent = s.total_print_time_h;
+}
+
+async function loadModels(q=''){
+  const r = await fetch('/api/models' + (q ? `?q=${encodeURIComponent(q)}` : ''));
+  const models = await r.json();
+  grid.innerHTML = '';
+  if(models.length === 0){
+    grid.innerHTML = `<div class="empty">Aucun modèle. Lance <span class="code">python3 scanner.py --source &lt;dossier&gt; --library &lt;bibliothèque&gt;</span> pour peupler le catalogue.</div>`;
+    return;
+  }
+  models.forEach(m => grid.appendChild(renderCard(m)));
+}
+
+let debounceTimer;
+qInput.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => loadModels(qInput.value), 200);
+});
+
+loadStats();
+loadModels();
+</script>
+</body>
+</html>
