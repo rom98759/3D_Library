@@ -11,6 +11,7 @@ import argparse
 import os
 import sqlite3
 from pathlib import Path
+import sys
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -72,6 +73,72 @@ def get_thumbnail(model_id: int):
         raise HTTPException(status_code=404, detail="Thumbnail introuvable")
 
     return FileResponse(thumbnail)
+
+@app.post("/api/models/{model_id}/open-folder")
+def open_model_folder(model_id: int):
+	"""Ouvre le dossier contenant le modèle dans l'explorateur de fichiers."""
+	conn = get_conn()
+	row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
+	conn.close()
+	if not row:
+		raise HTTPException(status_code=404, detail="Modèle introuvable")
+
+	model_path = Path(row["path"])
+	if not model_path.exists():
+		raise HTTPException(status_code=404, detail="Fichier du modèle introuvable")
+
+	folder_path = model_path.parent
+	if os.name == "nt":  # Windows
+		os.startfile(folder_path)
+	elif os.name == "posix":  # macOS / Linux
+		import subprocess
+
+		if sys.platform == "darwin":
+			subprocess.run(["open", folder_path])
+		else:
+			subprocess.run(["xdg-open", folder_path])
+	else:
+		raise HTTPException(
+			status_code=500, detail="Système d'exploitation non supporté"
+		)
+
+	return {"message": f"Dossier ouvert : {folder_path}"}
+
+@app.post("/api/models/{model_id}/open-orcaslicer")
+def open_model_in_orcaslicer(model_id: int):
+	"""Ouvre le modèle dans OrcaSlicer."""
+	conn = get_conn()
+	row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
+	conn.close()
+	if not row:
+		raise HTTPException(status_code=404, detail="Modèle introuvable")
+
+	model_path = Path(row["path"])
+	if not model_path.exists():
+		raise HTTPException(status_code=404, detail="Fichier du modèle introuvable")
+
+	# Commande pour ouvrir OrcaSlicer avec le fichier STL
+	if os.name == "nt":  # Windows
+		orcaslicer_executable = "C:\\Program Files\\OrcaSlicer\\OrcaSlicer.exe"
+		os.startfile(f'"{orcaslicer_executable}" "{model_path}"')
+	elif os.name == "posix":  # macOS / Linux
+		import subprocess
+
+		if sys.platform == "darwin":
+			subprocess.run(["open", "-a", "OrcaSlicer", str(model_path)])
+		else:
+			subprocess.Popen([
+				"flatpak",
+				"run",
+				"com.orcaslicer.OrcaSlicer",
+				str(model_path)
+			])
+	else:
+		raise HTTPException(
+			status_code=500, detail="Système d'exploitation non supporté"
+		)
+
+	return {"message": f"OrcaSlicer ouvert avec le modèle : {model_path}"}
 
 @app.get("/api/stats")
 def get_stats():
