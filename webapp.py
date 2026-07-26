@@ -16,11 +16,18 @@ import sys
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().resolve()
 
 app = FastAPI(title="3D Library Manager")
 
+class ModelUpdate(BaseModel):
+    name: str | None = None
+    category: str | None = None
+    material: str | None = None
+    tags: str | None = None
+    source_archive: str | None = None
 
 def get_conn():
     if not DB_PATH.exists():
@@ -139,6 +146,49 @@ def open_model_in_orcaslicer(model_id: int):
 		)
 
 	return {"message": f"OrcaSlicer ouvert avec le modèle : {model_path}"}
+
+@app.put("/api/models/{model_id}")
+def update_model(model_id: int, data: ModelUpdate):
+    conn = get_conn()
+
+    model = conn.execute(
+        "SELECT * FROM models WHERE id = ?",
+        (model_id,)
+    ).fetchone()
+
+    if not model:
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail="Modèle introuvable"
+        )
+
+    fields = []
+    values = []
+
+    for key, value in data.model_dump().items():
+        if value is not None:
+            fields.append(f"{key} = ?")
+            values.append(value)
+
+    if fields:
+        values.append(model_id)
+
+        query = f"""
+            UPDATE models
+            SET {', '.join(fields)}
+            WHERE id = ?
+        """
+
+        conn.execute(query, values)
+        conn.commit()
+
+    conn.close()
+
+    return {
+        "message": "Modèle modifié",
+        "id": model_id
+    }
 
 @app.get("/api/stats")
 def get_stats():
