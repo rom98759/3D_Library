@@ -20,6 +20,30 @@ _XVFB_AVAILABLE = shutil.which("xvfb-run") is not None
 _F3D_AVAILABLE = shutil.which("f3d") is not None
 
 
+def _detect_bg_flag() -> str:
+    """
+    Le nom du flag de couleur de fond a changé entre versions de F3D
+    (--bg-color sur les versions <= 2.x, --background-color sur les
+    versions plus récentes). On détecte le bon flag une seule fois via
+    `f3d --help` plutôt que de figer une version.
+    """
+    if not _F3D_AVAILABLE:
+        return "--bg-color"
+    try:
+        result = subprocess.run(
+            ["f3d", "--help"], capture_output=True, text=True, timeout=10
+        )
+        help_text = result.stdout + result.stderr
+        if "--background-color" in help_text:
+            return "--background-color"
+    except Exception:
+        pass
+    return "--bg-color"
+
+
+_BG_FLAG = _detect_bg_flag()
+
+
 def f3d_is_available() -> bool:
     return _F3D_AVAILABLE
 
@@ -39,7 +63,7 @@ def generate_thumbnail(stl_path, output_png_path, timeout: int = 30) -> tuple[bo
         "f3d", str(stl_path),
         f"--output={output_png_path}",
         f"--resolution={RESOLUTION}",
-        f"--background-color={BG_COLOR}",
+        f"{_BG_FLAG}={BG_COLOR}",
         f"--color={MODEL_COLOR}",
         "--edges",
         "--up=+Z",

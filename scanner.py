@@ -10,10 +10,13 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import re
 import shutil
 import sqlite3
 import sys
+import tempfile
+import unicodedata
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +69,32 @@ NOISE_PATTERNS = [
     r"[_\-]?copy(\s*\(\d+\))?$",
     r"^\d{6,}[_\-]?",
 ]
+
+
+def slugify(text: str) -> str:
+    """Nom de dossier propre : sans accents, minuscules, underscores."""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    return text or "sans_nom"
+
+
+def unique_item_dir(models_root: Path, category_slug: str, name_slug: str, file_hash: str) -> Path:
+    """
+    Résout le dossier final pour un modèle. En cas de collision de nom
+    (deux fichiers différents qui se nettoient vers le même nom), on
+    désambiguïse avec un court suffixe basé sur le hash du fichier.
+    """
+    base = models_root / category_slug / name_slug
+    if not base.exists():
+        return base
+
+    candidate = models_root / category_slug / f"{name_slug}__{file_hash[:6]}"
+    counter = 1
+    while candidate.exists():
+        candidate = models_root / category_slug / f"{name_slug}__{file_hash[:6]}_{counter}"
+        counter += 1
+    return candidate
 
 
 def clean_name(raw_name: str) -> str:
@@ -161,16 +190,59 @@ def insert_model(conn: sqlite3.Connection, stl_path: Path, source_archive, libra
     category, tags = auto_tag(name, stl_path.name)
     tags_str = ",".join(tags)
 
-    cursor = conn.execute(
+    # --- Emplacement final organisé : models/<categorie>/<nom>/ ---
+    models_root = library_root / "models"
+    item_dir = unique_item_dir(models_root, slugify(category), slugify(name), h)
+    item_dir.mkdir(parents=True, exist_ok=True)
+
+    target_stl = item_dir / "model.stl"
+    shutil.move(str(stl_path), str(target_stl))
+
+    # Miniature (F3D), générée à côté du modèle. Non bloquant.
+    thumb_path = None
+    thumb_msg = ""
+    if f3d_is_available():
+        candidate_thumb = item_dir / "preview.png"
+        ok, msg = generate_thumbnail(target_stl, candidate_thumb)
+        if ok:
+            thumb_path = candidate_thumb
+        else:
+            thumb_msg = f" (miniature non générée : {msg})"
+    else:
+        thumb_msg = " (f3d non installé : pas de miniature — voir README)"
+
+    # metadata.json à côté du modèle, pour s'y retrouver même manuellement
+    metadata = {
+        "name": name,
+        "original_filename": stl_path.name,
+        "category": category,
+        "tags": tags,
+        "dimensions_mm": {
+            "x": analysis["size_x"], "y": analysis["size_y"], "z": analysis["size_z"],
+        },
+        "volume_cm3": analysis["volume"],
+        "is_watertight": analysis["is_watertight"],
+        "material": analysis["material"],
+        "estimated_weight_g": analysis["estimated_weight_g"],
+        "estimated_print_time_h": analysis["estimated_print_time_h"],
+        "source_archive": source_archive,
+        "file_hash": h,
+        "added_at": datetime.now().isoformat(),
+    }
+    (item_dir / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    conn.execute(
         """INSERT INTO models
            (name, original_filename, path, file_hash, size_bytes, source_archive,
             category, tags, size_x, size_y, size_z, volume, is_watertight, material,
-            estimated_weight_g, estimated_print_time_h, added_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            estimated_weight_g, estimated_print_time_h, thumbnail_path, added_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             name,
             stl_path.name,
-            str(stl_path.resolve()),
+            str(target_stl.resolve()),
             h,
             size_bytes,
             source_archive,
@@ -178,71 +250,88 @@ def insert_model(conn: sqlite3.Connection, stl_path: Path, source_archive, libra
             analysis["size_x"], analysis["size_y"], analysis["size_z"],
             analysis["volume"], watertight_val, analysis["material"],
             analysis["estimated_weight_g"], analysis["estimated_print_time_h"],
+            str(thumb_path.resolve()) if thumb_path else None,
             datetime.now().isoformat(),
         ),
     )
     conn.commit()
-    model_id = cursor.lastrowid
 
-    # Miniature (F3D). Non bloquant : un échec de rendu n'empêche pas l'ajout.
-    thumb_msg = ""
-    if f3d_is_available():
-        thumb_dir = library_root / "_thumbnails"
-        thumb_path = thumb_dir / f"{model_id}.png"
-        ok, msg = generate_thumbnail(stl_path, thumb_path)
-        if ok:
-            conn.execute(
-                "UPDATE models SET thumbnail_path = ? WHERE id = ?",
-                (str(thumb_path.resolve()), model_id),
-            )
-            conn.commit()
-        else:
-            thumb_msg = f" (miniature non générée : {msg})"
-    else:
-        thumb_msg = " (f3d non installé : pas de miniature — voir README)"
-
-    return name, f"Ajouté{thumb_msg}"
+    return name, f"Ajouté -> {item_dir.relative_to(library_root)}{thumb_msg}"
 
 
-def scan_source(source: Path, library_root: Path, conn: sqlite3.Connection):
-    """Parcourt le dossier source : traite ZIP et STL isolés."""
-    extract_root = library_root / "_extracted"
-    extract_root.mkdir(parents=True, exist_ok=True)
+def consume_original(file_path: Path, source_root: Path, originals_root: Path, delete_originals: bool):
+    """
+    Retire le fichier source une fois traité : soit supprimé (--delete-originals),
+    soit déplacé dans _originals/ (comportement par défaut, plus sûr) en
+    conservant sa position relative au dossier source.
+    """
+    if delete_originals:
+        file_path.unlink(missing_ok=True)
+        return
 
+    try:
+        rel = file_path.relative_to(source_root)
+    except ValueError:
+        rel = Path(file_path.name)
+
+    dest = originals_root / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest = dest.with_name(f"{dest.stem}__{datetime.now().strftime('%H%M%S')}{dest.suffix}")
+    shutil.move(str(file_path), str(dest))
+
+
+def scan_source(source: Path, library_root: Path, conn: sqlite3.Connection, delete_originals: bool = False):
+    """
+    Parcourt le dossier source : extrait les ZIP, déplace chaque STL (issu
+    d'un ZIP ou isolé) vers l'arborescence finale organisée. Le dossier
+    source n'est qu'un point de passage : les fichiers traités en sont
+    retirés (archivés dans _originals/ par défaut, ou supprimés).
+    """
+    originals_root = library_root / "_originals"
     stats = {"added": 0, "duplicates": 0, "errors": 0, "zips": 0}
 
-    all_files = list(source.rglob("*"))
+    with tempfile.TemporaryDirectory(prefix="3dlib_extract_") as extract_tmp:
+        extract_root = Path(extract_tmp)
+        all_files = list(source.rglob("*"))
 
-    # 1. Traiter les ZIP
-    for zpath in [f for f in all_files if f.suffix.lower() == ".zip"]:
-        stats["zips"] += 1
-        try:
-            extracted_dir = extract_zip(zpath, extract_root)
-            log_scan(conn, str(zpath), "extracted", str(extracted_dir))
+        # 1. Traiter les ZIP
+        for zpath in [f for f in all_files if f.suffix.lower() == ".zip"]:
+            stats["zips"] += 1
+            try:
+                extracted_dir = extract_zip(zpath, extract_root)
+                log_scan(conn, str(zpath), "extracted", str(extracted_dir))
 
-            for stl in find_stl_files(extracted_dir):
-                name, status = insert_model(conn, stl, zpath.name, library_root)
-                if name:
-                    print(f"  [OK] {zpath.name} -> {name} — {status}")
-                    stats["added"] += 1
-                else:
-                    print(f"  [SKIP] {stl.name} : {status}")
-                    stats["duplicates"] += 1
+                for stl in find_stl_files(extracted_dir):
+                    name, status = insert_model(conn, stl, zpath.name, library_root)
+                    if name:
+                        print(f"  [OK] {zpath.name} -> {name} — {status}")
+                        stats["added"] += 1
+                    else:
+                        print(f"  [SKIP] {stl.name} : {status}")
+                        stats["duplicates"] += 1
 
-        except ValueError as e:
-            print(f"  [ERREUR] {e}")
-            log_scan(conn, str(zpath), "error", str(e))
-            stats["errors"] += 1
+                # ZIP entièrement traité : on le retire du dossier source
+                consume_original(zpath, source, originals_root, delete_originals)
 
-    # 2. Traiter les STL isolés (hors ZIP)
-    for stl in [f for f in all_files if f.suffix.lower() == ".stl"]:
-        name, status = insert_model(conn, stl, None, library_root)
-        if name:
-            print(f"  [OK] {stl.name} -> {name} — {status}")
-            stats["added"] += 1
-        else:
-            print(f"  [SKIP] {stl.name} : {status}")
-            stats["duplicates"] += 1
+            except ValueError as e:
+                # Archive corrompue : on la laisse en place pour inspection manuelle
+                print(f"  [ERREUR] {e}")
+                log_scan(conn, str(zpath), "error", str(e))
+                stats["errors"] += 1
+
+        # 2. Traiter les STL isolés (hors ZIP)
+        for stl in [f for f in all_files if f.suffix.lower() == ".stl"]:
+            name, status = insert_model(conn, stl, None, library_root)
+            if name:
+                print(f"  [OK] {stl.name} -> {name} — {status}")
+                stats["added"] += 1
+            else:
+                print(f"  [SKIP] {stl.name} : {status}")
+                stats["duplicates"] += 1
+                # Doublon : le fichier n'a pas été déplacé par insert_model,
+                # on le retire quand même du dossier source (transit only)
+                consume_original(stl, source, originals_root, delete_originals)
 
     return stats
 
@@ -252,6 +341,10 @@ def main():
     parser.add_argument("--source", required=True, help="Dossier à scanner (ex: ~/Downloads/3D)")
     parser.add_argument("--library", required=True, help="Dossier racine de la bibliothèque à créer/utiliser")
     parser.add_argument("--db-name", default="library.db", help="Nom du fichier SQLite (défaut: library.db)")
+    parser.add_argument(
+        "--delete-originals", action="store_true",
+        help="Supprime définitivement les fichiers sources traités au lieu de les archiver dans _originals/",
+    )
     args = parser.parse_args()
 
     source = Path(args.source).expanduser().resolve()
@@ -270,7 +363,7 @@ def main():
     print(f"Bibliothèque : {library_root}")
     print(f"Base : {db_path}\n")
 
-    stats = scan_source(source, library_root, conn)
+    stats = scan_source(source, library_root, conn, delete_originals=args.delete_originals)
 
     print("\n--- Résumé ---")
     print(f"Archives ZIP traitées : {stats['zips']}")

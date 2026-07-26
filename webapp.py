@@ -1,5 +1,5 @@
 """
-3D Library Manager - Interface web (V1)
+3D Library Manager - Interface web
 Backend FastAPI : sert l'API REST + la page statique.
 
 Usage:
@@ -9,9 +9,11 @@ Usage:
 
 import argparse
 import os
+import shutil
 import sqlite3
-from pathlib import Path
+import subprocess
 import sys
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -20,7 +22,18 @@ from pydantic import BaseModel
 
 DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().resolve()
 
+# Commande pour lancer OrcaSlicer. Ajuste selon ton install :
+#   - Linux (paquet/PATH) : orca-slicer
+#   - Linux (Flatpak)     : flatpak run com.orcaslicer.OrcaSlicer
+#   - Linux (AppImage)    : /chemin/vers/OrcaSlicer.AppImage
+#   - macOS               : open -a OrcaSlicer   (géré automatiquement ci-dessous)
+#   - Windows             : C:\Program Files\OrcaSlicer\OrcaSlicer.exe
+ORCASLICER_CMD = os.environ.get(
+    "ORCASLICER_CMD", "flatpak run com.orcaslicer.OrcaSlicer"
+)
+
 app = FastAPI(title="3D Library Manager")
+
 
 class ModelUpdate(BaseModel):
     name: str | None = None
@@ -28,6 +41,7 @@ class ModelUpdate(BaseModel):
     material: str | None = None
     tags: str | None = None
     source_archive: str | None = None
+
 
 def get_conn():
     if not DB_PATH.exists():
@@ -38,6 +52,15 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_model_or_404(model_id: int) -> dict:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
+    return dict(row)
 
 
 @app.get("/api/models")
@@ -65,107 +88,19 @@ def list_models(q: str = "", category: str = ""):
 
 @app.get("/api/models/{model_id}")
 def get_model(model_id: int):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
-    conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Modèle introuvable")
-    return dict(row)
+    return get_model_or_404(model_id)
 
-@app.get("/api/models/{model_id}/thumbnail")
-def get_thumbnail(model_id: int):
-    thumbnail = DB_PATH.parent / "_thumbnails" / f"{model_id}.png"
-
-    if not thumbnail.exists():
-        raise HTTPException(status_code=404, detail="Thumbnail introuvable")
-
-    return FileResponse(thumbnail)
-
-@app.post("/api/models/{model_id}/open-folder")
-def open_model_folder(model_id: int):
-	"""Ouvre le dossier contenant le modèle dans l'explorateur de fichiers."""
-	conn = get_conn()
-	row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
-	conn.close()
-	if not row:
-		raise HTTPException(status_code=404, detail="Modèle introuvable")
-
-	model_path = Path(row["path"])
-	if not model_path.exists():
-		raise HTTPException(status_code=404, detail="Fichier du modèle introuvable")
-
-	folder_path = model_path.parent
-	if os.name == "nt":  # Windows
-		os.startfile(folder_path)
-	elif os.name == "posix":  # macOS / Linux
-		import subprocess
-
-		if sys.platform == "darwin":
-			subprocess.run(["open", folder_path])
-		else:
-			subprocess.run(["xdg-open", folder_path])
-	else:
-		raise HTTPException(
-			status_code=500, detail="Système d'exploitation non supporté"
-		)
-
-	return {"message": f"Dossier ouvert : {folder_path}"}
-
-@app.post("/api/models/{model_id}/open-orcaslicer")
-def open_model_in_orcaslicer(model_id: int):
-	"""Ouvre le modèle dans OrcaSlicer."""
-	conn = get_conn()
-	row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
-	conn.close()
-	if not row:
-		raise HTTPException(status_code=404, detail="Modèle introuvable")
-
-	model_path = Path(row["path"])
-	if not model_path.exists():
-		raise HTTPException(status_code=404, detail="Fichier du modèle introuvable")
-
-	# Commande pour ouvrir OrcaSlicer avec le fichier STL
-	if os.name == "nt":  # Windows
-		orcaslicer_executable = "C:\\Program Files\\OrcaSlicer\\OrcaSlicer.exe"
-		os.startfile(f'"{orcaslicer_executable}" "{model_path}"')
-	elif os.name == "posix":  # macOS / Linux
-		import subprocess
-
-		if sys.platform == "darwin":
-			subprocess.run(["open", "-a", "OrcaSlicer", str(model_path)])
-		else:
-			subprocess.Popen([
-				"flatpak",
-				"run",
-				"com.orcaslicer.OrcaSlicer",
-				str(model_path)
-			])
-	else:
-		raise HTTPException(
-			status_code=500, detail="Système d'exploitation non supporté"
-		)
-
-	return {"message": f"OrcaSlicer ouvert avec le modèle : {model_path}"}
 
 @app.put("/api/models/{model_id}")
 def update_model(model_id: int, data: ModelUpdate):
     conn = get_conn()
 
-    model = conn.execute(
-        "SELECT * FROM models WHERE id = ?",
-        (model_id,)
-    ).fetchone()
-
+    model = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
     if not model:
         conn.close()
-        raise HTTPException(
-            status_code=404,
-            detail="Modèle introuvable"
-        )
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
 
-    fields = []
-    values = []
-
+    fields, values = [], []
     for key, value in data.model_dump().items():
         if value is not None:
             fields.append(f"{key} = ?")
@@ -173,22 +108,100 @@ def update_model(model_id: int, data: ModelUpdate):
 
     if fields:
         values.append(model_id)
-
-        query = f"""
-            UPDATE models
-            SET {', '.join(fields)}
-            WHERE id = ?
-        """
-
+        query = f"UPDATE models SET {', '.join(fields)} WHERE id = ?"
         conn.execute(query, values)
         conn.commit()
 
     conn.close()
+    return {"message": "Modèle modifié", "id": model_id}
 
-    return {
-        "message": "Modèle modifié",
-        "id": model_id
-    }
+
+@app.get("/api/models/{model_id}/thumbnail")
+def get_thumbnail(model_id: int):
+    """
+    Sert la miniature du modèle. Le chemin réel est stocké en base
+    (thumbnail_path), à côté du model.stl dans models/<categorie>/<nom>/preview.png
+    — ne pas reconstruire un chemin à partir de l'id, ça ne correspond plus
+    à l'arborescence depuis la réorganisation du scanner.
+    """
+    model = get_model_or_404(model_id)
+    thumb = model.get("thumbnail_path")
+    if not thumb or not Path(thumb).exists():
+        raise HTTPException(
+            status_code=404, detail="Miniature introuvable pour ce modèle"
+        )
+    return FileResponse(thumb, media_type="image/png")
+
+
+@app.post("/api/models/{model_id}/open-folder")
+def open_model_folder(model_id: int):
+    """Ouvre le dossier contenant le modèle dans l'explorateur de fichiers."""
+    model = get_model_or_404(model_id)
+    model_path = Path(model["path"])
+    if not model_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Fichier du modèle introuvable : {model_path}"
+        )
+
+    folder_path = model_path.parent
+
+    try:
+        if os.name == "nt":
+            os.startfile(folder_path)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(folder_path)], check=True)
+        else:
+            opener = shutil.which("xdg-open")
+            if not opener:
+                raise HTTPException(
+                    status_code=500, detail="xdg-open introuvable sur ce système"
+                )
+            subprocess.Popen(
+                [opener, str(folder_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Impossible d'ouvrir le dossier : {e}"
+        )
+
+    return {"message": f"Dossier ouvert : {folder_path}", "folder": str(folder_path)}
+
+
+@app.post("/api/models/{model_id}/open-orcaslicer")
+def open_model_in_orcaslicer(model_id: int):
+    """Ouvre le modèle dans OrcaSlicer."""
+    model = get_model_or_404(model_id)
+    model_path = Path(model["path"])
+    if not model_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Fichier du modèle introuvable : {model_path}"
+        )
+
+    try:
+        if os.name == "nt":
+            orcaslicer_executable = os.environ.get(
+                "ORCASLICER_CMD", r"C:\Program Files\OrcaSlicer\OrcaSlicer.exe"
+            )
+            subprocess.Popen([orcaslicer_executable, str(model_path)])
+        elif sys.platform == "darwin":
+            subprocess.run(["open", "-a", "OrcaSlicer", str(model_path)], check=True)
+        else:
+            cmd = ORCASLICER_CMD.split() + [str(model_path)]
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Commande introuvable : '{ORCASLICER_CMD}'. "
+                "Ajuste la variable d'environnement ORCASLICER_CMD selon ton installation "
+                "(paquet/PATH, flatpak run com.orcaslicer.OrcaSlicer, AppImage, etc.)."
+            ),
+        )
+
+    return {"message": f"OrcaSlicer ouvert avec le modèle : {model_path}"}
+
 
 @app.get("/api/stats")
 def get_stats():
@@ -220,7 +233,9 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--library", help="Dossier de la bibliothèque (contenant library.db)")
+    parser.add_argument(
+        "--library", help="Dossier de la bibliothèque (contenant library.db)"
+    )
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
@@ -228,4 +243,5 @@ if __name__ == "__main__":
         DB_PATH = Path(args.library).expanduser().resolve() / "library.db"
 
     import uvicorn
+
     uvicorn.run(app, host="127.0.0.1", port=args.port)
