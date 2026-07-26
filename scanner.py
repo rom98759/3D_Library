@@ -5,14 +5,7 @@ Scanner de fichiers 3D : détecte les ZIP/STL dans un dossier source,
 extrait les archives, nettoie les noms, et alimente une base SQLite.
 
 Usage:
-    python3 scanner.py --source ~/Downloads/3D --library ~/3D_Library
-
-Version 1 (roadmap):
-    [x] Scanner dossier
-    [x] Extraire ZIP
-    [x] Lire STL (métadonnées basiques : présence, taille, chemin)
-    [x] SQLite
-    [ ] Interface web simple (prochaine étape)
+    python3 scanner.py --source ~/3D --library ~/3D_Library
 """
 
 import argparse
