@@ -186,8 +186,12 @@ def insert_model(conn: sqlite3.Connection, stl_path: Path, source_archive, libra
         else int(bool(analysis["is_watertight"]))
     )
 
-    # Tags & catégorie automatiques (règles par mots-clés, cf. auto_tag.py)
-    category, tags = auto_tag(name, stl_path.name)
+    # Tags & catégorie automatiques (règles par mots-clés, cf. auto_tag.py).
+    # Le nom de l'archive source porte souvent la seule indication de thème :
+    # les STL issus de music.zip s'appellent "Billie Jean - Michael Jackson.stl",
+    # aucun ne contient de mot-clé de catégorie. Sans l'archive dans le texte
+    # analysé, ces modèles finissent tous en "Non classé".
+    category, tags = auto_tag(name, f"{stl_path.name} {source_archive or ''}")
     tags_str = ",".join(tags)
 
     # --- Emplacement final organisé : models/<categorie>/<nom>/ ---
