@@ -508,7 +508,19 @@
         <div class="detail" id="detail"></div>
     </div>
 
-    <script>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
         const grid = document.getElementById('grid');
         const qInput = document.getElementById('q');
         const statsEl = document.getElementById('stats');
@@ -583,6 +595,82 @@
         }
         window.dimSVG = dimSVG;
 
+        // ---------- Viewer 3D interactif (Three.js) ----------
+        let currentViewer = null; // { renderer, rafId }
+
+        function disposeViewer() {
+            if (!currentViewer) return;
+            if (currentViewer.rafId) cancelAnimationFrame(currentViewer.rafId);
+            if (currentViewer.renderer) {
+                currentViewer.renderer.dispose();
+                currentViewer.renderer.domElement.remove();
+            }
+            currentViewer = null;
+        }
+
+        async function load3DViewer(m, container, btn) {
+            btn.textContent = 'Chargement…';
+            btn.disabled = true;
+            disposeViewer();
+            container.innerHTML = '';
+
+            const width = container.clientWidth || 300;
+            const height = container.clientHeight || 200;
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+            const key = new THREE.DirectionalLight(0xffffff, 0.9);
+            key.position.set(1, 1, 1);
+            scene.add(key);
+            const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+            fill.position.set(-1, -0.5, -1);
+            scene.add(fill);
+
+            let controls;
+            try {
+                const geometry = await new STLLoader().loadAsync(`/api/models/${m.id}/stl`);
+                geometry.center();
+                geometry.computeBoundingBox();
+
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0xe9eff3, metalness: 0.05, roughness: 0.65,
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                // Convention STL habituelle Z-up -> Y-up pour Three.js
+                mesh.rotation.x = -Math.PI / 2;
+                scene.add(mesh);
+
+                const size = new THREE.Vector3();
+                geometry.boundingBox.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z) || 1;
+                camera.position.set(maxDim * 1.1, maxDim * 0.9, maxDim * 1.4);
+                camera.lookAt(0, 0, 0);
+
+                controls = new OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.08;
+            } catch (e) {
+                container.innerHTML = '<div class="action-msg error" style="padding:10px;">Impossible de charger le rendu 3D</div>';
+                btn.remove();
+                return;
+            }
+
+            container.appendChild(renderer.domElement);
+            btn.remove();
+
+            currentViewer = { renderer };
+            (function animate() {
+                currentViewer.rafId = requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            })();
+        }
+
         async function callAction(endpoint, msgEl) {
             msgEl.textContent = 'Lancement…';
             msgEl.className = 'action-msg';
@@ -603,6 +691,7 @@
         }
 
         function openDetail(m) {
+            disposeViewer();
             const tagsHtml = (m.tags ? m.tags.split(',').filter(Boolean) : [])
                 .map(t => `<span class="tag">${t}</span>`)
                 .join('');
@@ -611,7 +700,10 @@
     ${m.category ? `<div class="category-eyebrow">${m.category}</div>` : ''}
     <h2>${m.name}</h2>
     <div class="path">${m.path}</div>
-    ${m.thumbnail_path ? `<div class="thumb" style="height:160px;margin:14px 0;"><img src="/api/models/${m.id}/thumbnail" alt="${m.name}"></div>` : ''}
+    <div class="thumb" id="viewer-container" style="height:180px;margin:14px 0;">
+      ${m.thumbnail_path ? `<img src="/api/models/${m.id}/thumbnail" alt="${m.name}">` : `<div style="width:100%">${dimSVG(m.size_x, m.size_y, m.size_z)}</div>`}
+    </div>
+    <button id="btn-3d-view" style="width:100%;margin-bottom:10px;background:none;border:1px solid var(--line-mid);color:var(--ink);font-family:'JetBrains Mono',monospace;text-transform:uppercase;font-size:11px;padding:8px 14px;border-radius:var(--radius);cursor:pointer;">Vue 3D interactive</button>
     <div class="dims" style="margin:4px 0 10px;">${dimSVG(m.size_x, m.size_y, m.size_z)}</div>
     <dl>
       <dt>Dimensions</dt><dd>${fmt(m.size_x)} × ${fmt(m.size_y)} × ${fmt(m.size_z)} mm</dd>
@@ -652,9 +744,11 @@
     <div class="action-msg" id="action-msg"></div>
   `;
             const msgEl = detail.querySelector('#action-msg');
+            const viewerContainer = detail.querySelector('#viewer-container');
+            detail.querySelector('#btn-3d-view').addEventListener('click', (e) => load3DViewer(m, viewerContainer, e.currentTarget));
             detail.querySelector('#btn-orca').addEventListener('click', () => callAction(`/api/models/${m.id}/open-orcaslicer`, msgEl));
             detail.querySelector('#btn-folder').addEventListener('click', () => callAction(`/api/models/${m.id}/open-folder`, msgEl));
-            detail.querySelector('.close').addEventListener('click', () => overlay.classList.add('hidden'));
+            detail.querySelector('.close').addEventListener('click', () => { disposeViewer(); overlay.classList.add('hidden'); });
             overlay.classList.remove('hidden');
             const editZone = detail.querySelector("#edit-zone");
 
@@ -721,7 +815,7 @@
 
                 });
         }
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.add('hidden'); });
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) { disposeViewer(); overlay.classList.add('hidden'); } });
 
         async function loadStats() {
             const r = await fetch('/api/stats');

@@ -28,9 +28,7 @@ DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().res
 #   - Linux (AppImage)    : /chemin/vers/OrcaSlicer.AppImage
 #   - macOS               : open -a OrcaSlicer   (géré automatiquement ci-dessous)
 #   - Windows             : C:\Program Files\OrcaSlicer\OrcaSlicer.exe
-ORCASLICER_CMD = os.environ.get(
-    "ORCASLICER_CMD", "flatpak run com.orcaslicer.OrcaSlicer"
-)
+ORCASLICER_CMD = os.environ.get("ORCASLICER_CMD", "flatpak run com.orcaslicer.OrcaSlicer")
 
 app = FastAPI(title="3D Library Manager")
 
@@ -127,10 +125,18 @@ def get_thumbnail(model_id: int):
     model = get_model_or_404(model_id)
     thumb = model.get("thumbnail_path")
     if not thumb or not Path(thumb).exists():
-        raise HTTPException(
-            status_code=404, detail="Miniature introuvable pour ce modèle"
-        )
+        raise HTTPException(status_code=404, detail="Miniature introuvable pour ce modèle")
     return FileResponse(thumb, media_type="image/png")
+
+
+@app.get("/api/models/{model_id}/stl")
+def get_stl_file(model_id: int):
+    """Sert le fichier STL brut, utilisé par le viewer 3D interactif (Three.js)."""
+    model = get_model_or_404(model_id)
+    stl_path = Path(model["path"])
+    if not stl_path.exists():
+        raise HTTPException(status_code=404, detail=f"Fichier STL introuvable : {stl_path}")
+    return FileResponse(stl_path, media_type="model/stl")
 
 
 @app.post("/api/models/{model_id}/open-folder")
@@ -139,9 +145,7 @@ def open_model_folder(model_id: int):
     model = get_model_or_404(model_id)
     model_path = Path(model["path"])
     if not model_path.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Fichier du modèle introuvable : {model_path}"
-        )
+        raise HTTPException(status_code=404, detail=f"Fichier du modèle introuvable : {model_path}")
 
     folder_path = model_path.parent
 
@@ -153,18 +157,10 @@ def open_model_folder(model_id: int):
         else:
             opener = shutil.which("xdg-open")
             if not opener:
-                raise HTTPException(
-                    status_code=500, detail="xdg-open introuvable sur ce système"
-                )
-            subprocess.Popen(
-                [opener, str(folder_path)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+                raise HTTPException(status_code=500, detail="xdg-open introuvable sur ce système")
+            subprocess.Popen([opener, str(folder_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError as e:
-        raise HTTPException(
-            status_code=500, detail=f"Impossible d'ouvrir le dossier : {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"Impossible d'ouvrir le dossier : {e}")
 
     return {"message": f"Dossier ouvert : {folder_path}", "folder": str(folder_path)}
 
@@ -175,9 +171,7 @@ def open_model_in_orcaslicer(model_id: int):
     model = get_model_or_404(model_id)
     model_path = Path(model["path"])
     if not model_path.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Fichier du modèle introuvable : {model_path}"
-        )
+        raise HTTPException(status_code=404, detail=f"Fichier du modèle introuvable : {model_path}")
 
     try:
         if os.name == "nt":
@@ -233,9 +227,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--library", help="Dossier de la bibliothèque (contenant library.db)"
-    )
+    parser.add_argument("--library", help="Dossier de la bibliothèque (contenant library.db)")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
@@ -243,5 +235,4 @@ if __name__ == "__main__":
         DB_PATH = Path(args.library).expanduser().resolve() / "library.db"
 
     import uvicorn
-
     uvicorn.run(app, host="127.0.0.1", port=args.port)
