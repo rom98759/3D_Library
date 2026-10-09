@@ -1,0 +1,7 @@
+[Unit]
+Description=Purge définitive des modèles en corbeille depuis plus de TRASH_RETENTION_DAYS jours
+
+[Service]
+Type=oneshot
+Environment=TRASH_RETENTION_DAYS=30
+ExecStart=/usr/bin/python3 %h/Documents/Code/3d/library/purge_trash.py
