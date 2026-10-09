@@ -37,6 +37,7 @@ DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().res
 IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", "600"))
 IDLE_CHECK_INTERVAL_SECONDS = 30.0
 SD_LISTEN_FDS_START = 3  # convention systemd : premier socket passé = fd 3
+TRASH_RETENTION_DAYS = int(os.environ.get("TRASH_RETENTION_DAYS", "30"))
 
 
 class ActivityTracker:
@@ -281,11 +282,66 @@ def set_model_lists(model_id: int, data: ModelListsUpdate):
     return {"model_id": model_id, "list_ids": sorted(requested)}
 
 
+@app.post("/api/models/{model_id}/trash")
+def trash_model(model_id: int):
+    get_model_or_404(model_id)
+    conn = get_conn()
+    conn.execute(
+        "UPDATE models SET deleted_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), model_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"message": "Modèle mis à la corbeille", "id": model_id}
+
+
+@app.post("/api/models/{model_id}/restore")
+def restore_model(model_id: int):
+    get_model_or_404(model_id)
+    conn = get_conn()
+    conn.execute("UPDATE models SET deleted_at = NULL WHERE id = ?", (model_id,))
+    conn.commit()
+    conn.close()
+    return {"message": "Modèle restauré", "id": model_id}
+
+
+@app.delete("/api/models/{model_id}")
+def delete_model(model_id: int):
+    model = get_model_or_404(model_id)
+    conn = get_conn()
+    conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
+    conn.commit()
+    conn.close()
+
+    folder = Path(model["path"]).parent
+    if folder.exists():
+        try:
+            shutil.rmtree(folder)
+        except OSError as e:
+            print(f"[webapp] suppression fichiers échouée pour id={model_id} : {e}")
+    return {"message": "Modèle supprimé définitivement", "id": model_id}
+
+
+@app.get("/api/trash")
+def list_trash():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM models WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC"
+    ).fetchall()
+    models = [dict(r) for r in rows]
+    _attach_lists(conn, models)
+    conn.close()
+    for m in models:
+        purge_at = datetime.fromisoformat(m["deleted_at"]) + timedelta(days=TRASH_RETENTION_DAYS)
+        m["purge_at"] = purge_at.isoformat()
+    return models
+
+
 @app.get("/api/models")
 def list_models(q: str = "", category: str = ""):
-    """Liste/recherche les modèles. Recherche simple sur le nom et les tags."""
+    """Liste/recherche les modèles actifs (non supprimés)."""
     conn = get_conn()
-    query = "SELECT * FROM models WHERE 1=1"
+    query = "SELECT * FROM models WHERE deleted_at IS NULL"
     params = []
 
     if q:
@@ -300,8 +356,10 @@ def list_models(q: str = "", category: str = ""):
     query += " ORDER BY added_at DESC"
 
     rows = conn.execute(query, params).fetchall()
+    models = [dict(r) for r in rows]
+    _attach_lists(conn, models)
     conn.close()
-    return [dict(r) for r in rows]
+    return models
 
 
 @app.get("/api/models/{model_id}")
