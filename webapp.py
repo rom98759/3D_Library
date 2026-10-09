@@ -129,14 +129,18 @@ def get_thumbnail(model_id: int):
     return FileResponse(thumb, media_type="image/png")
 
 
+def _media_type_for(path: Path) -> str:
+    return "model/3mf" if path.suffix.lower() == ".3mf" else "model/stl"
+
+
 @app.get("/api/models/{model_id}/stl")
 def get_stl_file(model_id: int):
-    """Sert le fichier STL brut, utilisé par le viewer 3D interactif (Three.js)."""
+    """Sert le fichier STL/3MF brut, utilisé par le viewer 3D interactif (Three.js)."""
     model = get_model_or_404(model_id)
     stl_path = Path(model["path"])
     if not stl_path.exists():
         raise HTTPException(status_code=404, detail=f"Fichier STL introuvable : {stl_path}")
-    return FileResponse(stl_path, media_type="model/stl")
+    return FileResponse(stl_path, media_type=_media_type_for(stl_path))
 
 
 @app.post("/api/models/{model_id}/open-folder")
