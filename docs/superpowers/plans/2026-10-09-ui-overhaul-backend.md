@@ -222,15 +222,45 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 Run: `python3 -m pytest tests/test_scanner_schema.py -v`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Run the full existing suite to check for regressions**
+- [ ] **Step 5: Add a regression test confirming the scanner assigns tags but never a list**
+
+The spec is explicit that `auto_tag()`'s `category` return value must no
+longer be used to create or assign a list at insertion time — only `tags`
+populates the `tags` column, as before. Nothing in `insert_model` currently
+touches `lists`/`model_lists` (those tables didn't exist until this task),
+so this is already true; pin it with a test so a future change can't
+reintroduce auto-assignment unnoticed. Add to the existing
+`tests/test_scanner_3mf.py` (reusing its `conn` fixture and `_patch_pipeline`
+helper):
+
+```python
+def test_insert_model_populates_tags_but_assigns_no_list(tmp_path, conn, monkeypatch):
+    _patch_pipeline(monkeypatch)
+    library_root = tmp_path / "library"
+    source = tmp_path / "Support batterie.stl"
+    source.write_text("fake stl content")
+
+    name, status = scanner.insert_model(conn, source, None, library_root)
+
+    assert name is not None, status
+    row = conn.execute("SELECT tags FROM models WHERE name = ?", (name,)).fetchone()
+    assert row[0] == "test"  # vient du auto_tag patché, pas de catégorie assignée en liste
+    list_count = conn.execute("SELECT COUNT(*) FROM model_lists").fetchone()[0]
+    assert list_count == 0
+```
+
+Run: `python3 -m pytest tests/test_scanner_3mf.py -v`
+Expected: PASS (existing tests + this new one).
+
+- [ ] **Step 6: Run the full existing suite to check for regressions**
 
 Run: `python3 -m pytest -v`
 Expected: PASS — no existing test should break (the new columns/tables are additive).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add scanner.py tests/test_scanner_schema.py
+git add scanner.py tests/test_scanner_schema.py tests/test_scanner_3mf.py
 git commit -m "feat(db): add lists/model_lists tables and deleted_at/printed columns"
 ```
 
