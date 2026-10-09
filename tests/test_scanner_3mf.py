@@ -59,6 +59,21 @@ def test_insert_model_names_file_by_extension(tmp_path, conn, monkeypatch):
     assert Path(row[0]).exists()
 
 
+def test_insert_model_populates_tags_but_assigns_no_list(tmp_path, conn, monkeypatch):
+    _patch_pipeline(monkeypatch)
+    library_root = tmp_path / "library"
+    source = tmp_path / "Support batterie.stl"
+    source.write_text("fake stl content")
+
+    name, status = scanner.insert_model(conn, source, None, library_root)
+
+    assert name is not None, status
+    row = conn.execute("SELECT tags FROM models WHERE name = ?", (name,)).fetchone()
+    assert row[0] == "test"  # vient du auto_tag patché, pas de catégorie assignée en liste
+    list_count = conn.execute("SELECT COUNT(*) FROM model_lists").fetchone()[0]
+    assert list_count == 0
+
+
 def test_scan_source_processes_loose_3mf_and_leaves_unrelated_files(tmp_path, conn, monkeypatch):
     _patch_pipeline(monkeypatch)
     source = tmp_path / "3D"

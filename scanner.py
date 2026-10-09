@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS models (
     estimated_print_time_h REAL,
     thumbnail_path TEXT,
     added_at TEXT NOT NULL,
-    print_count INTEGER DEFAULT 0
+    print_count INTEGER DEFAULT 0,
+    deleted_at TEXT,
+    printed INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS scan_log (
@@ -56,7 +58,34 @@ CREATE TABLE IF NOT EXISTS scan_log (
     detail TEXT,
     scanned_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS lists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_lists (
+    model_id INTEGER NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+    PRIMARY KEY (model_id, list_id)
+);
 """
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Crée les tables manquantes et ajoute les colonnes introduites après la
+    création initiale de la base, sans toucher aux données existantes.
+    Idempotent : peut être appelé à chaque démarrage (scanner, webapp,
+    purge_trash)."""
+    conn.executescript(DB_SCHEMA)  # CREATE TABLE IF NOT EXISTS : sûr à rejouer
+
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(models)")}
+    if "deleted_at" not in existing_cols:
+        conn.execute("ALTER TABLE models ADD COLUMN deleted_at TEXT")
+    if "printed" not in existing_cols:
+        conn.execute("ALTER TABLE models ADD COLUMN printed INTEGER DEFAULT 0")
+    conn.commit()
 
 # Bruit fréquent dans les noms de fichiers issus de Thingiverse / Printables / exports d'appareil photo
 NOISE_PATTERNS = [
@@ -125,8 +154,8 @@ def file_hash(path: Path, chunk_size: int = 65536) -> str:
 
 def init_db(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
-    conn.executescript(DB_SCHEMA)
-    conn.commit()
+    conn.execute("PRAGMA foreign_keys = ON")
+    ensure_schema(conn)
     return conn
 
 
