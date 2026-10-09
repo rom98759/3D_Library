@@ -5,14 +5,25 @@ Backend FastAPI : sert l'API REST + la page statique.
 Usage:
     LIBRARY_DB_PATH=~/3D_Library/library.db python3 -m uvicorn webapp:app --reload
     (ou simplement : python3 webapp.py --library ~/3D_Library)
+
+Sous activation par socket systemd (3d-library-web.socket), le process est
+lancé par systemd avec LISTEN_FDS=1 : on récupère le socket déjà ouvert (fd 3,
+convention SD_LISTEN_FDS_START) au lieu d'écouter nous-mêmes, et on s'arrête
+tout seul après IDLE_TIMEOUT_SECONDS d'inactivité — systemd relance
+automatiquement le process à la prochaine connexion. Un lancement manuel
+(sans LISTEN_FDS) n'est pas affecté : pas d'arrêt automatique.
 """
 
 import argparse
+import asyncio
 import os
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -21,6 +32,76 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().resolve()
+IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", "600"))
+IDLE_CHECK_INTERVAL_SECONDS = 30.0
+SD_LISTEN_FDS_START = 3  # convention systemd : premier socket passé = fd 3
+
+
+class ActivityTracker:
+    """Suit l'instant de la dernière requête, pour savoir depuis combien de
+    temps le serveur est inactif (utilisé par l'arrêt automatique)."""
+
+    def __init__(self):
+        self.last_activity = time.monotonic()
+
+    def touch(self, now: float | None = None) -> None:
+        self.last_activity = now if now is not None else time.monotonic()
+
+    def idle_for(self, now: float | None = None) -> float:
+        now = now if now is not None else time.monotonic()
+        return now - self.last_activity
+
+
+activity = ActivityTracker()
+
+
+def listen_fd_count() -> int:
+    """Nombre de sockets passés par systemd (LISTEN_FDS). 0 si lancé
+    manuellement, ou si la variable est absente/invalide."""
+    try:
+        return int(os.environ.get("LISTEN_FDS", "0"))
+    except ValueError:
+        return 0
+
+
+def uvicorn_run_kwargs(listen_fds: int, host: str, port: int) -> dict:
+    """Arguments à passer à uvicorn.run() : le socket hérité de systemd s'il
+    y en a un, sinon host/port classiques (lancement manuel)."""
+    if listen_fds > 0:
+        return {"fd": SD_LISTEN_FDS_START}
+    return {"host": host, "port": port}
+
+
+async def idle_shutdown_loop(
+    tracker: ActivityTracker,
+    timeout_seconds: float,
+    check_interval: float = IDLE_CHECK_INTERVAL_SECONDS,
+    max_iterations: int | None = None,
+    on_shutdown=None,
+) -> None:
+    """
+    Vérifie périodiquement si `tracker` est inactif depuis `timeout_seconds`
+    et déclenche `on_shutdown` (par défaut : SIGTERM sur soi-même) le cas
+    échéant, puis s'arrête. `max_iterations` et `on_shutdown` ne servent
+    qu'aux tests — en production ils restent à leurs valeurs par défaut et
+    la boucle tourne indéfiniment jusqu'à l'arrêt effectif du process.
+    """
+    if on_shutdown is None:
+        def on_shutdown():
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    iterations = 0
+    while max_iterations is None or iterations < max_iterations:
+        await asyncio.sleep(check_interval)
+        iterations += 1
+        if tracker.idle_for() >= timeout_seconds:
+            print(
+                f"[webapp] inactif depuis {timeout_seconds:.0f}s, arrêt "
+                "(sera relancé à la prochaine connexion par systemd)."
+            )
+            on_shutdown()
+            return
+
 
 # Commande pour lancer OrcaSlicer. Ajuste selon ton install :
 #   - Linux (paquet/PATH) : orca-slicer
@@ -30,7 +111,24 @@ DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().res
 #   - Windows             : C:\Program Files\OrcaSlicer\OrcaSlicer.exe
 ORCASLICER_CMD = os.environ.get("ORCASLICER_CMD", "flatpak run com.orcaslicer.OrcaSlicer")
 
-app = FastAPI(title="3D Library Manager")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # L'arrêt automatique n'a de sens que sous activation par socket : un
+    # lancement manuel (python3 webapp.py) n'a pas de systemd pour relancer
+    # le process ensuite, donc on ne doit jamais s'y arrêter tout seul.
+    if listen_fd_count() > 0:
+        asyncio.create_task(idle_shutdown_loop(activity, IDLE_TIMEOUT_SECONDS))
+    yield
+
+
+app = FastAPI(title="3D Library Manager", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _track_activity(request, call_next):
+    activity.touch()
+    return await call_next(request)
 
 
 class ModelUpdate(BaseModel):
@@ -239,4 +337,4 @@ if __name__ == "__main__":
         DB_PATH = Path(args.library).expanduser().resolve() / "library.db"
 
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=args.port)
+    uvicorn.run(app, **uvicorn_run_kwargs(listen_fd_count(), "127.0.0.1", args.port))

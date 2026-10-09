@@ -1,0 +1,9 @@
+[Unit]
+Description=Interface web 3D Library Manager (démarré à la demande par 3d-library-web.socket)
+Requires=3d-library-web.socket
+
+[Service]
+Type=simple
+Environment=LIBRARY_DB_PATH=%h/3D_Library/library.db
+ExecStart=/usr/bin/python3 %h/Documents/Code/3d/library/webapp.py
+WorkingDirectory=%h/Documents/Code/3d/library
