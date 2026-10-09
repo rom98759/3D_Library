@@ -153,8 +153,9 @@ def extract_zip(zip_path: Path, extract_root: Path) -> Path:
 
 
 def find_stl_files(directory: Path):
-    """Trouve tous les fichiers .stl dans un dossier, récursivement."""
-    return list(directory.rglob("*.stl")) + list(directory.rglob("*.STL"))
+    """Trouve tous les fichiers .stl et .3mf dans un dossier, récursivement."""
+    patterns = ["*.stl", "*.STL", "*.3mf", "*.3MF"]
+    return [p for pattern in patterns for p in directory.rglob(pattern)]
 
 
 def insert_model(conn: sqlite3.Connection, stl_path: Path, source_archive, library_root: Path):
@@ -199,7 +200,7 @@ def insert_model(conn: sqlite3.Connection, stl_path: Path, source_archive, libra
     item_dir = unique_item_dir(models_root, slugify(category), slugify(name), h)
     item_dir.mkdir(parents=True, exist_ok=True)
 
-    target_stl = item_dir / "model.stl"
+    target_stl = item_dir / f"model{stl_path.suffix.lower()}"
     shutil.move(str(stl_path), str(target_stl))
 
     # Miniature (F3D), générée à côté du modèle. Non bloquant.
@@ -325,7 +326,7 @@ def scan_source(source: Path, library_root: Path, conn: sqlite3.Connection, dele
                 stats["errors"] += 1
 
         # 2. Traiter les STL isolés (hors ZIP)
-        for stl in [f for f in all_files if f.suffix.lower() == ".stl"]:
+        for stl in [f for f in all_files if f.suffix.lower() in (".stl", ".3mf")]:
             name, status = insert_model(conn, stl, None, library_root)
             if name:
                 print(f"  [OK] {stl.name} -> {name} — {status}")
