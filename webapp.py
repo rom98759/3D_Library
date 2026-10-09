@@ -97,7 +97,8 @@ async def idle_shutdown_loop(
         if tracker.idle_for() >= timeout_seconds:
             print(
                 f"[webapp] inactif depuis {timeout_seconds:.0f}s, arrêt "
-                "(sera relancé à la prochaine connexion par systemd)."
+                "(sera relancé à la prochaine connexion par systemd).",
+                flush=True,
             )
             on_shutdown()
             return
