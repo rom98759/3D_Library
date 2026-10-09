@@ -1,0 +1,9 @@
+[Unit]
+Description=Surveille ~/3D pour déclencher le scan automatique de la bibliothèque 3D
+
+[Path]
+PathChanged=%h/3D
+Unit=3d-library-watch.service
+
+[Install]
+WantedBy=default.target

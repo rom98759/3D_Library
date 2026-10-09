@@ -1,0 +1,6 @@
+[Unit]
+Description=Scan automatique de ~/3D (déclenché par 3d-library-watch.path)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/Documents/Code/3d/library/watch_trigger.py
