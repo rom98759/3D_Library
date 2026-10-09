@@ -5,8 +5,11 @@ Appelé par le service systemd `3d-library-watch.service` à chaque
 changement détecté par `3d-library-watch.path` (inotify) dans ~/3D.
 
 N'exécute le scan que si au moins un fichier n'a pas été modifié depuis
-STABLE_SECONDS : un téléchargement ou une copie encore en cours ne sera
-traité qu'au prochain événement, une fois stabilisé.
+STABLE_SECONDS. Un `systemd --user path unit` ne se redéclenche que sur un
+NOUVEL événement inotify : si un seul fichier est déposé et que rien
+d'autre ne change ensuite dans ~/3D, aucun second événement n'arrivera
+jamais. Le fichier doit donc être attendu DANS cette même exécution
+(poll borné) plutôt que de compter sur un futur événement externe.
 """
 
 import sys
@@ -16,6 +19,8 @@ from pathlib import Path
 from scanner import init_db, scan_source
 
 STABLE_SECONDS = 10
+POLL_INTERVAL_SECONDS = 2.0
+MAX_POLLS = 6  # 6 x 2s = 12s d'attente bornée, au-delà des 10s de stabilité requis
 DEFAULT_SOURCE = Path("~/3D").expanduser()
 DEFAULT_LIBRARY = Path("~/3D_Library").expanduser()
 
@@ -30,13 +35,24 @@ def has_stable_entries(source: Path, stable_seconds: int = STABLE_SECONDS) -> bo
     return False
 
 
-def main(source: Path = DEFAULT_SOURCE, library: Path = DEFAULT_LIBRARY) -> int:
+def main(
+    source: Path = DEFAULT_SOURCE,
+    library: Path = DEFAULT_LIBRARY,
+    stable_seconds: int = STABLE_SECONDS,
+    poll_interval: float = POLL_INTERVAL_SECONDS,
+    max_polls: int = MAX_POLLS,
+) -> int:
     if not source.exists():
         print(f"[watch_trigger] dossier source introuvable : {source}", file=sys.stderr)
         return 0
 
-    if not has_stable_entries(source):
-        print("[watch_trigger] rien de stable à traiter, on attend le prochain événement.")
+    attempts = 0
+    while not has_stable_entries(source, stable_seconds) and attempts < max_polls:
+        time.sleep(poll_interval)
+        attempts += 1
+
+    if not has_stable_entries(source, stable_seconds):
+        print("[watch_trigger] rien n'est devenu stable dans le délai imparti, on abandonne.")
         return 0
 
     library.mkdir(parents=True, exist_ok=True)
