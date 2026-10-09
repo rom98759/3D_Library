@@ -155,6 +155,13 @@ class ModelListsUpdate(BaseModel):
     list_ids: list[int]
 
 
+class BatchAction(BaseModel):
+    ids: list[int]
+    action: Literal["trash", "restore", "delete", "add_list", "remove_list", "set_printed"]
+    list_id: int | None = None
+    printed: bool | None = None
+
+
 def get_conn():
     if not DB_PATH.exists():
         raise HTTPException(
@@ -320,6 +327,75 @@ def delete_model(model_id: int):
         except OSError as e:
             print(f"[webapp] suppression fichiers échouée pour id={model_id} : {e}")
     return {"message": "Modèle supprimé définitivement", "id": model_id}
+
+
+@app.post("/api/models/batch")
+def batch_action(data: BatchAction):
+    conn = get_conn()
+
+    if data.action in ("add_list", "remove_list"):
+        if data.list_id is None:
+            conn.close()
+            raise HTTPException(status_code=400, detail="list_id requis pour cette action")
+        if not conn.execute("SELECT id FROM lists WHERE id = ?", (data.list_id,)).fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Liste introuvable")
+    if data.action == "set_printed" and data.printed is None:
+        conn.close()
+        raise HTTPException(status_code=400, detail="printed requis pour cette action")
+
+    existing_ids = set()
+    if data.ids:
+        placeholders = ",".join("?" * len(data.ids))
+        existing_ids = {
+            r["id"] for r in conn.execute(
+                f"SELECT id FROM models WHERE id IN ({placeholders})", data.ids,
+            ).fetchall()
+        }
+
+    processed, skipped = [], []
+    for model_id in data.ids:
+        if model_id not in existing_ids:
+            skipped.append(model_id)
+            continue
+
+        if data.action == "trash":
+            conn.execute(
+                "UPDATE models SET deleted_at = ? WHERE id = ?",
+                (datetime.now().isoformat(), model_id),
+            )
+        elif data.action == "restore":
+            conn.execute("UPDATE models SET deleted_at = NULL WHERE id = ?", (model_id,))
+        elif data.action == "delete":
+            row = conn.execute("SELECT path FROM models WHERE id = ?", (model_id,)).fetchone()
+            conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
+            if row:
+                folder = Path(row["path"]).parent
+                if folder.exists():
+                    try:
+                        shutil.rmtree(folder)
+                    except OSError as e:
+                        print(f"[webapp] suppression fichiers échouée pour id={model_id} : {e}")
+        elif data.action == "add_list":
+            conn.execute(
+                "INSERT OR IGNORE INTO model_lists (model_id, list_id) VALUES (?, ?)",
+                (model_id, data.list_id),
+            )
+        elif data.action == "remove_list":
+            conn.execute(
+                "DELETE FROM model_lists WHERE model_id = ? AND list_id = ?",
+                (model_id, data.list_id),
+            )
+        elif data.action == "set_printed":
+            conn.execute(
+                "UPDATE models SET printed = ? WHERE id = ?",
+                (1 if data.printed else 0, model_id),
+            )
+        processed.append(model_id)
+
+    conn.commit()
+    conn.close()
+    return {"processed": processed, "skipped": skipped}
 
 
 @app.get("/api/trash")
