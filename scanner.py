@@ -148,6 +148,12 @@ def extract_zip(zip_path: Path, extract_root: Path) -> Path:
             zf.extractall(target_dir)
     except zipfile.BadZipFile:
         raise ValueError(f"Archive corrompue ou invalide : {zip_path}")
+    except RuntimeError as e:
+        # Ex. archive protégée par mot de passe
+        raise ValueError(f"Archive illisible (protégée par mot de passe ?) : {zip_path} ({e})")
+    except NotImplementedError as e:
+        # Ex. compression Deflate64 (Windows Explorer), non supportée par zipfile
+        raise ValueError(f"Archive illisible (méthode de compression non supportée) : {zip_path} ({e})")
 
     return target_dir
 
@@ -319,15 +325,27 @@ def scan_source(source: Path, library_root: Path, conn: sqlite3.Connection, dele
                 # ZIP entièrement traité : on le retire du dossier source
                 consume_original(zpath, source, originals_root, delete_originals)
 
-            except ValueError as e:
-                # Archive corrompue : on la laisse en place pour inspection manuelle
+            except Exception as e:
+                # Archive corrompue/chiffrée/non supportée, ou erreur inattendue
+                # pendant le traitement de son contenu (disque, base...) : un seul
+                # fichier problématique ne doit jamais interrompre tout le scan.
+                # On laisse le ZIP en place pour inspection manuelle.
                 print(f"  [ERREUR] {e}")
                 log_scan(conn, str(zpath), "error", str(e))
                 stats["errors"] += 1
 
         # 2. Traiter les STL isolés (hors ZIP)
         for stl in [f for f in all_files if f.suffix.lower() in (".stl", ".3mf")]:
-            name, status = insert_model(conn, stl, None, library_root)
+            try:
+                name, status = insert_model(conn, stl, None, library_root)
+            except Exception as e:
+                # Erreur inattendue (I/O, base...) : on laisse le fichier en
+                # place pour inspection manuelle et on continue le scan.
+                print(f"  [ERREUR] {stl.name} : {e}")
+                log_scan(conn, str(stl), "error", str(e))
+                stats["errors"] += 1
+                continue
+
             if name:
                 print(f"  [OK] {stl.name} -> {name} — {status}")
                 stats["added"] += 1

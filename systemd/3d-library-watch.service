@@ -1,5 +1,12 @@
 [Unit]
-Description=Scan automatique de ~/3D (déclenché par 3d-library-watch.path)
+Description=Scan automatique de ~/3D (déclenché par 3d-library-watch.path ou 3d-library-watch.timer)
+# Une rafale de dépôts de fichiers (copie de plusieurs fichiers d'un coup,
+# plusieurs téléchargements qui se terminent proches dans le temps) peut
+# déclencher plus de 5 démarrages en 10s (limite par défaut de systemd), ce
+# qui ferait passer l'unité en "failed" (unit-start-limit-hit) et arrêterait
+# la surveillance jusqu'à une intervention manuelle. Désactivé : un scan
+# échoué individuellement ne doit jamais désactiver tout le watcher.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

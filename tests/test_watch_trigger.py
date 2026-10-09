@@ -5,22 +5,56 @@ from pathlib import Path
 import watch_trigger
 
 
-def test_has_stable_entries_false_for_fresh_file(tmp_path):
+def _age(path: Path, seconds_ago: float) -> None:
+    t = time.time() - seconds_ago
+    os.utime(path, (t, t))
+
+
+def test_ready_to_scan_false_for_fresh_relevant_file(tmp_path):
     (tmp_path / "fresh.stl").write_text("x")
 
-    assert watch_trigger.has_stable_entries(tmp_path, stable_seconds=10) is False
+    assert watch_trigger.ready_to_scan(tmp_path, stable_seconds=10) is False
 
 
-def test_has_stable_entries_true_once_old_enough(tmp_path):
+def test_ready_to_scan_true_once_relevant_file_old_enough(tmp_path):
     f = tmp_path / "old.stl"
     f.write_text("x")
-    old_time = time.time() - 20
-    os.utime(f, (old_time, old_time))
+    _age(f, 20)
 
-    assert watch_trigger.has_stable_entries(tmp_path, stable_seconds=10) is True
+    assert watch_trigger.ready_to_scan(tmp_path, stable_seconds=10) is True
 
 
-def test_main_skips_scan_when_nothing_ever_becomes_stable(tmp_path, monkeypatch):
+def test_ready_to_scan_ignores_irrelevant_files_entirely(tmp_path):
+    """
+    Bug trouvé en revue finale : has_stable_entries() d'origine renvoyait
+    True dès qu'UN SEUL fichier (n'importe lequel) était vieux de plus de
+    stable_seconds — y compris un .pdf ou .gcode qui ne sera jamais
+    consommé par le scanner. Un vieux fichier non pertinent qui traîne ne
+    doit jamais, à lui seul, déclencher un scan.
+    """
+    old_pdf = tmp_path / "notice.pdf"
+    old_pdf.write_text("x")
+    _age(old_pdf, 20)
+
+    assert watch_trigger.ready_to_scan(tmp_path, stable_seconds=10) is False
+
+
+def test_ready_to_scan_waits_for_every_relevant_file_not_just_one(tmp_path):
+    """
+    Même bug, autre facette : si un vieux .stl stable coexiste avec un
+    .stl tout juste déposé, l'ancienne logique aurait lancé le scan
+    immédiatement à cause du fichier stable, traitant le fichier frais
+    avant qu'il soit complet.
+    """
+    old_stl = tmp_path / "old.stl"
+    old_stl.write_text("x")
+    _age(old_stl, 20)
+    (tmp_path / "fresh.stl").write_text("x")
+
+    assert watch_trigger.ready_to_scan(tmp_path, stable_seconds=10) is False
+
+
+def test_main_skips_scan_when_nothing_ever_becomes_ready(tmp_path, monkeypatch):
     source = tmp_path / "3D"
     source.mkdir()
     (source / "fresh.stl").write_text("x")
@@ -29,7 +63,7 @@ def test_main_skips_scan_when_nothing_ever_becomes_stable(tmp_path, monkeypatch)
     # Simule un fichier qui ne se stabilise jamais pendant toute la fenêtre
     # d'attente bornée (ex. téléchargement anormalement long) : main() doit
     # finir par abandonner sans scanner, plutôt que d'attendre indéfiniment.
-    monkeypatch.setattr(watch_trigger, "has_stable_entries", lambda *a, **k: False)
+    monkeypatch.setattr(watch_trigger, "ready_to_scan", lambda *a, **k: False)
     called = []
     monkeypatch.setattr(watch_trigger, "scan_source", lambda *a, **k: called.append(True))
 
@@ -39,7 +73,7 @@ def test_main_skips_scan_when_nothing_ever_becomes_stable(tmp_path, monkeypatch)
     assert called == []
 
 
-def test_main_scans_once_file_becomes_stable_during_the_same_run(tmp_path, monkeypatch):
+def test_main_scans_once_file_becomes_ready_during_the_same_run(tmp_path, monkeypatch):
     """
     Reproduit le bug trouvé lors de la validation de bout en bout : un
     `systemd --user path unit` ne se redéclenche que sur un NOUVEL événement
@@ -53,15 +87,15 @@ def test_main_scans_once_file_becomes_stable_during_the_same_run(tmp_path, monke
     (source / "downloading.stl").write_text("x")
     library = tmp_path / "library"
 
-    # Pas encore stable aux deux premiers checks, stable à partir du troisième
+    # Pas encore prêt aux deux premiers checks, prêt à partir du troisième
     # (et pour tout appel suivant, y compris la vérification finale post-boucle).
     call_count = {"n": 0}
 
-    def fake_has_stable_entries(*a, **k):
+    def fake_ready_to_scan(*a, **k):
         call_count["n"] += 1
         return call_count["n"] >= 3
 
-    monkeypatch.setattr(watch_trigger, "has_stable_entries", fake_has_stable_entries)
+    monkeypatch.setattr(watch_trigger, "ready_to_scan", fake_ready_to_scan)
     calls = []
     monkeypatch.setattr(
         watch_trigger, "scan_source",
@@ -74,13 +108,12 @@ def test_main_scans_once_file_becomes_stable_during_the_same_run(tmp_path, monke
     assert calls == [True]
 
 
-def test_main_runs_scan_when_stable_file_present(tmp_path, monkeypatch):
+def test_main_runs_scan_when_ready_file_present(tmp_path, monkeypatch):
     source = tmp_path / "3D"
     source.mkdir()
     f = source / "old.stl"
     f.write_text("x")
-    old_time = time.time() - 20
-    os.utime(f, (old_time, old_time))
+    _age(f, 20)
     library = tmp_path / "library"
 
     calls = []

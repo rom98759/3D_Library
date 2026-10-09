@@ -4,9 +4,11 @@
 Appelé par le service systemd `3d-library-watch.service` à chaque
 changement détecté par `3d-library-watch.path` (inotify) dans ~/3D.
 
-N'exécute le scan que si au moins un fichier n'a pas été modifié depuis
-STABLE_SECONDS. Un `systemd --user path unit` ne se redéclenche que sur un
-NOUVEL événement inotify : si un seul fichier est déposé et que rien
+N'exécute le scan que si TOUS les fichiers pertinents (zip/stl/3mf) de ~/3D
+sont stables (non modifiés) depuis au moins STABLE_SECONDS. Les fichiers non
+pertinents (pdf, gcode...) n'entrent jamais en compte, ni pour bloquer ni
+pour déclencher un scan. Un `systemd --user path unit` ne se redéclenche que
+sur un NOUVEL événement inotify : si un seul fichier est déposé et que rien
 d'autre ne change ensuite dans ~/3D, aucun second événement n'arrivera
 jamais. Le fichier doit donc être attendu DANS cette même exécution
 (poll borné) plutôt que de compter sur un futur événement externe.
@@ -24,15 +26,34 @@ MAX_POLLS = 6  # 6 x 2s = 12s d'attente bornée, au-delà des 10s de stabilité 
 DEFAULT_SOURCE = Path("~/3D").expanduser()
 DEFAULT_LIBRARY = Path("~/3D_Library").expanduser()
 
+# Extensions que le scanner consomme réellement (cf. scanner.py). Un fichier
+# non pertinent (pdf, gcode, etc.) qui traîne dans ~/3D ne doit jamais, à lui
+# seul, déclencher un scan ni être compté comme "stable" à la place d'un
+# fichier pertinent encore en cours d'écriture.
+RELEVANT_SUFFIXES = {".zip", ".stl", ".3mf"}
 
-def has_stable_entries(source: Path, stable_seconds: int = STABLE_SECONDS) -> bool:
-    """True si au moins un fichier de `source` n'a pas été modifié depuis
-    `stable_seconds`. Ne regarde que les fichiers (pas les dossiers eux-mêmes)."""
+
+def relevant_files(source: Path):
+    """Fichiers de `source` que le scanner traitera réellement (zip/stl/3mf),
+    récursivement."""
+    return [
+        p for p in source.rglob("*")
+        if p.is_file() and p.suffix.lower() in RELEVANT_SUFFIXES
+    ]
+
+
+def ready_to_scan(source: Path, stable_seconds: int = STABLE_SECONDS) -> bool:
+    """True s'il existe au moins un fichier pertinent dans `source` et que
+    TOUS les fichiers pertinents sont stables (non modifiés) depuis au moins
+    `stable_seconds`. Un seul fichier pertinent encore frais empêche le scan,
+    même si un autre fichier pertinent, lui, est déjà stable."""
     now = time.time()
-    for entry in source.rglob("*"):
-        if entry.is_file() and (now - entry.stat().st_mtime) >= stable_seconds:
-            return True
-    return False
+    found = False
+    for entry in relevant_files(source):
+        found = True
+        if (now - entry.stat().st_mtime) < stable_seconds:
+            return False
+    return found
 
 
 def main(
@@ -47,12 +68,12 @@ def main(
         return 0
 
     attempts = 0
-    while not has_stable_entries(source, stable_seconds) and attempts < max_polls:
+    while not ready_to_scan(source, stable_seconds) and attempts < max_polls:
         time.sleep(poll_interval)
         attempts += 1
 
-    if not has_stable_entries(source, stable_seconds):
-        print("[watch_trigger] rien n'est devenu stable dans le délai imparti, on abandonne.")
+    if not ready_to_scan(source, stable_seconds):
+        print("[watch_trigger] rien n'est prêt à être scanné dans le délai imparti, on abandonne.")
         return 0
 
     library.mkdir(parents=True, exist_ok=True)

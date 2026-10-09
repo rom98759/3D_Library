@@ -1,0 +1,9 @@
+[Unit]
+Description=Filet de sécurité : relance périodique du scan de ~/3D au cas où un événement inotify aurait été manqué (ex. un fichier arrive pendant qu'un scan précédent tourne encore)
+
+[Timer]
+OnUnitInactiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
