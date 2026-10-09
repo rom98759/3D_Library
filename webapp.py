@@ -39,6 +39,17 @@ IDLE_CHECK_INTERVAL_SECONDS = 30.0
 SD_LISTEN_FDS_START = 3  # convention systemd : premier socket passé = fd 3
 TRASH_RETENTION_DAYS = int(os.environ.get("TRASH_RETENTION_DAYS", "30"))
 
+SORT_COLUMNS = {
+    "added_desc": "added_at DESC",
+    "added_asc": "added_at ASC",
+    "name_asc": "name COLLATE NOCASE ASC",
+    "name_desc": "name COLLATE NOCASE DESC",
+    "weight_desc": "estimated_weight_g DESC",
+    "weight_asc": "estimated_weight_g ASC",
+    "volume_desc": "volume DESC",
+    "volume_asc": "volume ASC",
+}
+
 
 class ActivityTracker:
     """Suit l'instant de la dernière requête, pour savoir depuis combien de
@@ -141,6 +152,7 @@ class ModelUpdate(BaseModel):
     material: str | None = None
     tags: str | None = None
     source_archive: str | None = None
+    printed: bool | None = None
 
 
 class ListCreate(BaseModel):
@@ -414,8 +426,8 @@ def list_trash():
 
 
 @app.get("/api/models")
-def list_models(q: str = "", category: str = ""):
-    """Liste/recherche les modèles actifs (non supprimés)."""
+def list_models(q: str = "", category: str = "", lists: str = "", printed: str = "", sort: str = "added_desc"):
+    """Liste/recherche les modèles actifs (non supprimés), avec filtres combinés."""
     conn = get_conn()
     query = "SELECT * FROM models WHERE deleted_at IS NULL"
     params = []
@@ -429,7 +441,19 @@ def list_models(q: str = "", category: str = ""):
         query += " AND category = ?"
         params.append(category)
 
-    query += " ORDER BY added_at DESC"
+    if lists:
+        for list_id_str in lists.split(","):
+            list_id_str = list_id_str.strip()
+            if not list_id_str.isdigit():
+                continue
+            query += " AND id IN (SELECT model_id FROM model_lists WHERE list_id = ?)"
+            params.append(int(list_id_str))
+
+    if printed in ("true", "false"):
+        query += " AND printed = ?"
+        params.append(1 if printed == "true" else 0)
+
+    query += " ORDER BY " + SORT_COLUMNS.get(sort, SORT_COLUMNS["added_desc"])
 
     rows = conn.execute(query, params).fetchall()
     models = [dict(r) for r in rows]
@@ -558,18 +582,28 @@ def open_model_in_orcaslicer(model_id: int):
 @app.get("/api/stats")
 def get_stats():
     conn = get_conn()
-    total = conn.execute("SELECT COUNT(*) AS c FROM models").fetchone()["c"]
+    total = conn.execute("SELECT COUNT(*) AS c FROM models WHERE deleted_at IS NULL").fetchone()["c"]
     total_weight = conn.execute(
-        "SELECT COALESCE(SUM(estimated_weight_g), 0) AS w FROM models"
+        "SELECT COALESCE(SUM(estimated_weight_g), 0) AS w FROM models WHERE deleted_at IS NULL"
     ).fetchone()["w"]
     total_time = conn.execute(
-        "SELECT COALESCE(SUM(estimated_print_time_h), 0) AS t FROM models"
+        "SELECT COALESCE(SUM(estimated_print_time_h), 0) AS t FROM models WHERE deleted_at IS NULL"
     ).fetchone()["t"]
+    trash_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM models WHERE deleted_at IS NOT NULL"
+    ).fetchone()["c"]
+    recent_rows = conn.execute(
+        "SELECT * FROM models WHERE deleted_at IS NULL ORDER BY added_at DESC LIMIT 5"
+    ).fetchall()
+    recent = [dict(r) for r in recent_rows]
+    _attach_lists(conn, recent)
     conn.close()
     return {
         "total_models": total,
         "total_weight_g": round(total_weight, 1),
         "total_print_time_h": round(total_time, 1),
+        "trash_count": trash_count,
+        "recent": recent,
     }
 
 
