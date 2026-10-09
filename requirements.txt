@@ -1,4 +1,6 @@
 trimesh
+networkx
+lxml
 numpy
 fastapi
 uvicorn
