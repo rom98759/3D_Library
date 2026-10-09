@@ -24,7 +24,9 @@ import subprocess
 import sys
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -140,6 +142,18 @@ class ModelUpdate(BaseModel):
     source_archive: str | None = None
 
 
+class ListCreate(BaseModel):
+    name: str
+
+
+class ListRename(BaseModel):
+    name: str
+
+
+class ModelListsUpdate(BaseModel):
+    list_ids: list[int]
+
+
 def get_conn():
     if not DB_PATH.exists():
         raise HTTPException(
@@ -148,16 +162,123 @@ def get_conn():
         )
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _attach_lists(conn, models: list[dict]) -> None:
+    if not models:
+        return
+    ids = [m["id"] for m in models]
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"""SELECT ml.model_id AS model_id, l.id AS id, l.name AS name
+            FROM model_lists ml
+            JOIN lists l ON l.id = ml.list_id
+            WHERE ml.model_id IN ({placeholders})
+            ORDER BY l.name COLLATE NOCASE""",
+        ids,
+    ).fetchall()
+    by_model: dict[int, list[dict]] = {}
+    for r in rows:
+        by_model.setdefault(r["model_id"], []).append({"id": r["id"], "name": r["name"]})
+    for m in models:
+        m["lists"] = by_model.get(m["id"], [])
 
 
 def get_model_or_404(model_id: int) -> dict:
     conn = get_conn()
     row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         raise HTTPException(status_code=404, detail="Modèle introuvable")
-    return dict(row)
+    model = dict(row)
+    _attach_lists(conn, [model])
+    conn.close()
+    return model
+
+
+@app.get("/api/lists")
+def get_lists():
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT l.id, l.name,
+                  (SELECT COUNT(*) FROM model_lists ml
+                   JOIN models m ON m.id = ml.model_id
+                   WHERE ml.list_id = l.id AND m.deleted_at IS NULL) AS model_count
+           FROM lists l ORDER BY l.name COLLATE NOCASE"""
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/lists", status_code=201)
+def create_list(data: ListCreate):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nom de liste requis")
+    conn = get_conn()
+    if conn.execute("SELECT id FROM lists WHERE name = ?", (name,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=409, detail="Une liste avec ce nom existe déjà")
+    cur = conn.execute(
+        "INSERT INTO lists (name, created_at) VALUES (?, ?)",
+        (name, datetime.now().isoformat()),
+    )
+    conn.commit()
+    list_id = cur.lastrowid
+    conn.close()
+    return {"id": list_id, "name": name, "model_count": 0}
+
+
+@app.put("/api/lists/{list_id}")
+def rename_list(list_id: int, data: ListRename):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nom de liste requis")
+    conn = get_conn()
+    if not conn.execute("SELECT id FROM lists WHERE id = ?", (list_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Liste introuvable")
+    if conn.execute("SELECT id FROM lists WHERE name = ? AND id != ?", (name, list_id)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=409, detail="Une liste avec ce nom existe déjà")
+    conn.execute("UPDATE lists SET name = ? WHERE id = ?", (name, list_id))
+    conn.commit()
+    conn.close()
+    return {"id": list_id, "name": name}
+
+
+@app.delete("/api/lists/{list_id}")
+def delete_list(list_id: int):
+    conn = get_conn()
+    if not conn.execute("SELECT id FROM lists WHERE id = ?", (list_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Liste introuvable")
+    conn.execute("DELETE FROM lists WHERE id = ?", (list_id,))
+    conn.commit()
+    conn.close()
+    return {"message": "Liste supprimée", "id": list_id}
+
+
+@app.put("/api/models/{model_id}/lists")
+def set_model_lists(model_id: int, data: ModelListsUpdate):
+    get_model_or_404(model_id)
+    conn = get_conn()
+    valid_ids = {r["id"] for r in conn.execute("SELECT id FROM lists").fetchall()}
+    requested = set(data.list_ids)
+    unknown = requested - valid_ids
+    if unknown:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Liste(s) inconnue(s) : {sorted(unknown)}")
+    conn.execute("DELETE FROM model_lists WHERE model_id = ?", (model_id,))
+    conn.executemany(
+        "INSERT INTO model_lists (model_id, list_id) VALUES (?, ?)",
+        [(model_id, lid) for lid in requested],
+    )
+    conn.commit()
+    conn.close()
+    return {"model_id": model_id, "list_ids": sorted(requested)}
 
 
 @app.get("/api/models")
