@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import BatchActionBar from "../components/BatchActionBar";
 import FilterBar from "../components/FilterBar";
 import ModelCard from "../components/ModelCard";
+import ModelDetailOverlay from "../components/ModelDetailOverlay";
 import ModelRow from "../components/ModelRow";
 import { batchAction } from "../api";
 import { useModels } from "../hooks/useModels";
@@ -34,6 +35,7 @@ export default function Library({
   const [sort, setSort] = useState<SortKey>("added_desc");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [detailId, setDetailId] = useState<number | null>(null);
 
   useEffect(() => {
     setActiveListIds(listFilter ? [listFilter] : []);
@@ -123,9 +125,7 @@ export default function Library({
               model={model}
               selected={selected.has(model.id)}
               onToggleSelect={() => toggleSelect(model.id)}
-              onOpenDetail={() => {
-                /* branché à la Tâche 6 (fiche détail) */
-              }}
+              onOpenDetail={() => setDetailId(model.id)}
             />
           ))}
         </div>
@@ -143,7 +143,7 @@ export default function Library({
               model={model}
               selected={selected.has(model.id)}
               onToggleSelect={() => toggleSelect(model.id)}
-              onOpenDetail={() => {}}
+              onOpenDetail={() => setDetailId(model.id)}
             />
           ))}
         </div>
@@ -161,6 +161,20 @@ export default function Library({
         onDeletePermanently={() => runBatch("delete")}
         onClear={() => setSelected(new Set())}
       />
+
+      {detailId !== null && (
+        <ModelDetailOverlay
+          modelId={detailId}
+          showingTrash={showingTrash}
+          lists={lists}
+          onClose={() => setDetailId(null)}
+          onChanged={() => {
+            refresh();
+            onListsChanged();
+            onStatsChanged();
+          }}
+        />
+      )}
     </div>
   );
 }
