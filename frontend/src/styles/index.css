@@ -76,13 +76,16 @@
   .bp-batchbar {
     @apply fixed bottom-5 left-1/2 -translate-x-1/2 bg-bp-panel2 border border-bp-cyan rounded px-4 py-2.5 flex items-center gap-2.5 font-mono text-xs shadow-2xl z-20;
   }
-  .bp-batchbar button {
+  /* Classe explicite (plutôt qu'un sélecteur descendant `.bp-batchbar button`)
+     pour ne pas déteindre sur les boutons du ListPicker qui s'affiche à
+     l'intérieur de la barre. */
+  .bp-batchbar-btn {
     @apply bg-transparent border border-white/10 text-bp-ink h-8 px-3.5 rounded-sm cursor-pointer font-mono text-[11px] whitespace-nowrap flex items-center gap-1.5;
   }
-  .bp-batchbar button:hover {
+  .bp-batchbar-btn:hover {
     @apply border-bp-cyan text-bp-cyan;
   }
-  .bp-batchbar button.danger:hover {
+  .bp-batchbar-btn.danger:hover {
     @apply border-bp-red text-bp-red;
   }
 

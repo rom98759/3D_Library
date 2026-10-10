@@ -51,8 +51,8 @@ export default function FilterBar(props: FilterBarProps) {
         ))}
 
       {!props.showingTrash && (
-        <div className={`bp-chip ${props.printed === true ? "active" : ""}`} onClick={props.onTogglePrinted}>
-          {props.printed === true ? "Imprimé" : "Non imprimé/tous"}
+        <div className={`bp-chip ${props.printed !== undefined ? "active" : ""}`} onClick={props.onTogglePrinted}>
+          {props.printed === true ? "✓ Imprimé" : props.printed === false ? "✗ Non imprimé" : "Imprimé : tous"}
         </div>
       )}
 

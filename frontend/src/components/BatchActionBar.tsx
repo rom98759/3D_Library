@@ -28,7 +28,9 @@ export default function BatchActionBar(props: BatchActionBarProps) {
 
       {!props.showingTrash && (
         <div className="relative">
-          <button onClick={() => setPickerOpen((o) => !o)}>+ Liste</button>
+          <button className="bp-batchbar-btn" onClick={() => setPickerOpen((o) => !o)}>
+            + Liste
+          </button>
           {pickerOpen && (
             <ListPicker
               lists={props.lists}
@@ -43,13 +45,27 @@ export default function BatchActionBar(props: BatchActionBarProps) {
         </div>
       )}
 
-      {!props.showingTrash && <button onClick={props.onSetPrinted}>✓ Imprimé</button>}
-      {!props.showingTrash && <button onClick={props.onTrash}>🗑 Corbeille</button>}
-      {props.showingTrash && <button onClick={props.onRestore}>↺ Restaurer</button>}
-      <button className="danger" onClick={props.onDeletePermanently}>
+      {!props.showingTrash && (
+        <button className="bp-batchbar-btn" onClick={props.onSetPrinted}>
+          ✓ Imprimé
+        </button>
+      )}
+      {!props.showingTrash && (
+        <button className="bp-batchbar-btn" onClick={props.onTrash}>
+          🗑 Corbeille
+        </button>
+      )}
+      {props.showingTrash && (
+        <button className="bp-batchbar-btn" onClick={props.onRestore}>
+          ↺ Restaurer
+        </button>
+      )}
+      <button className="bp-batchbar-btn danger" onClick={props.onDeletePermanently}>
         Supprimer déf.
       </button>
-      <button onClick={props.onClear}>Annuler</button>
+      <button className="bp-batchbar-btn" onClick={props.onClear}>
+        Annuler
+      </button>
     </div>
   );
 }

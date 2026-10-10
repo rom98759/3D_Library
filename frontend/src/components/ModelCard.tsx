@@ -45,6 +45,11 @@ export default function ModelCard({ model, selected, onToggleSelect, onOpenDetai
         <span>{model.estimated_weight_g != null ? `${model.estimated_weight_g} g` : "—"}</span>
         <span>{new Date(model.added_at).toLocaleDateString("fr-FR")}</span>
       </div>
+      {model.purge_at && (
+        <div className="font-mono text-[10px] text-bp-red mt-1.5">
+          Purge prévue le {new Date(model.purge_at).toLocaleDateString("fr-FR")}
+        </div>
+      )}
     </div>
   );
 }

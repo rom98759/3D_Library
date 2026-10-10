@@ -61,6 +61,15 @@ export default function Library({
   );
   const { models, loading, refresh } = useModels(params, showingTrash);
 
+  // Un renommage de liste (déclenché depuis la sidebar) ne change ni les
+  // filtres ni showingTrash, donc useModels ne referait pas de requête tout
+  // seul — sans ça, les pastilles des cartes garderaient l'ancien nom tant
+  // que la bibliothèque n'est pas rechargée pour une autre raison.
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lists]);
+
   // Dès qu'un filtre change, la sélection est vidée immédiatement — sans
   // attendre la fin du rechargement, sinon la barre d'actions resterait
   // active sur des ids qui ne correspondent déjà plus à ce qui est affiché
@@ -91,7 +100,11 @@ export default function Library({
   function toggleSelect(id: number) {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }
@@ -128,7 +141,7 @@ export default function Library({
         activeListIds={activeListIds}
         onToggleList={toggleList}
         printed={printed}
-        onTogglePrinted={() => setPrinted((p) => (p === true ? undefined : true))}
+        onTogglePrinted={() => setPrinted((p) => (p === undefined ? true : p === true ? false : undefined))}
         sort={sort}
         onSortChange={setSort}
         viewMode={viewMode}
@@ -163,7 +176,7 @@ export default function Library({
         <div className="border border-white/10 rounded-sm overflow-hidden">
           <div className="grid grid-cols-[32px_48px_2fr_1.4fr_90px_90px_90px_70px] gap-2.5 px-3 py-2 bg-bp-panel2 font-mono text-[10px] text-bp-ink-dim uppercase">
             <span /> <span /> <span>Nom</span> <span>Listes</span> <span>Poids</span> <span>Volume</span>{" "}
-            <span>Ajouté le</span> <span>Imprimé</span>
+            <span>{showingTrash ? "Purge le" : "Ajouté le"}</span> <span>Imprimé</span>
           </div>
           {models.map((model) => (
             <ModelRow

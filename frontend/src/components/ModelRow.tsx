@@ -47,8 +47,10 @@ export default function ModelRow({ model, selected, onToggleSelect, onOpenDetail
       <div className="font-mono text-[11px] text-bp-ink-dim">
         {model.volume != null ? `${model.volume} cm³` : "—"}
       </div>
-      <div className="font-mono text-[11px] text-bp-ink-dim">
-        {new Date(model.added_at).toLocaleDateString("fr-FR")}
+      <div className={`font-mono text-[11px] ${model.purge_at ? "text-bp-red" : "text-bp-ink-dim"}`}>
+        {model.purge_at
+          ? `Purge le ${new Date(model.purge_at).toLocaleDateString("fr-FR")}`
+          : new Date(model.added_at).toLocaleDateString("fr-FR")}
       </div>
       <div className="text-bp-green">{model.printed === 1 ? "✓" : "—"}</div>
     </div>

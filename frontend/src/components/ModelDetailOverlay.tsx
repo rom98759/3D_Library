@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   deleteModelPermanently,
   getModel,
@@ -11,7 +11,10 @@ import {
 } from "../api";
 import { dimSvg } from "../lib/dimSvg";
 import type { ListSummary, Model } from "../types";
-import Viewer3D from "./Viewer3D";
+
+// Three.js (~600 Ko) n'est chargé que si l'utilisateur ouvre vraiment la vue
+// 3D, pas au chargement initial de l'app.
+const Viewer3D = lazy(() => import("./Viewer3D"));
 
 interface ModelDetailOverlayProps {
   modelId: number;
@@ -33,24 +36,39 @@ export default function ModelDetailOverlay({
   onChanged,
 }: ModelDetailOverlayProps) {
   const [model, setModel] = useState<Model | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [editing, setEditing] = useState(false);
   const [show3D, setShow3D] = useState(false);
   const [message, setMessage] = useState<{ text: string; kind: "ok" | "error" } | null>(null);
 
   const [form, setForm] = useState({ name: "", material: "", tags: "", printed: false, listIds: [] as number[] });
 
-  useEffect(() => {
-    getModel(modelId).then((m) => {
-      setModel(m);
-      setForm({
-        name: m.name,
-        material: m.material ?? "",
-        tags: m.tags ?? "",
-        printed: m.printed === 1,
-        listIds: m.lists.map((l) => l.id),
-      });
+  function syncFormFromModel(m: Model) {
+    setForm({
+      name: m.name,
+      material: m.material ?? "",
+      tags: m.tags ?? "",
+      printed: m.printed === 1,
+      listIds: m.lists.map((l) => l.id),
     });
+  }
+
+  useEffect(() => {
+    getModel(modelId)
+      .then((m) => {
+        setModel(m);
+        syncFormFromModel(m);
+      })
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "Impossible de charger ce modèle"));
   }, [modelId]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   async function handleAction(fn: () => Promise<unknown>, okText: string): Promise<boolean> {
     try {
@@ -83,6 +101,19 @@ export default function ModelDetailOverlay({
     }
   }
 
+  if (loadError) {
+    return (
+      <div className="bp-detail-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+        <div className="bp-detail">
+          <p className="font-mono text-xs text-bp-red mb-4">{loadError}</p>
+          <button className="bp-btn" onClick={onClose}>
+            Fermer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!model) return null;
 
   function toggleListId(id: number) {
@@ -100,7 +131,9 @@ export default function ModelDetailOverlay({
 
         <div className="bp-thumb h-[180px] my-3.5">
           {show3D ? (
-            <Viewer3D modelId={model.id} />
+            <Suspense fallback={<div className="font-mono text-xs text-bp-ink-dim p-2.5">Chargement du moteur 3D…</div>}>
+              <Viewer3D modelId={model.id} />
+            </Suspense>
           ) : model.thumbnail_path ? (
             <img src={`/api/models/${model.id}/thumbnail`} alt={model.name} />
           ) : (
@@ -206,7 +239,13 @@ export default function ModelDetailOverlay({
               <button className="bp-btn" onClick={() => handleAction(async () => setMessage({ text: `Dossier ouvert : ${(await openFolder(model.id)).folder}`, kind: "ok" }), "")}>
                 Ouvrir le dossier
               </button>
-              <button className="bp-btn" onClick={() => setEditing((e) => !e)}>
+              <button
+                className="bp-btn"
+                onClick={() => {
+                  if (!editing) syncFormFromModel(model); // repart des valeurs actuelles, écarte toute saisie non sauvegardée d'une ouverture précédente
+                  setEditing((e) => !e);
+                }}
+              >
                 Modifier
               </button>
               <button

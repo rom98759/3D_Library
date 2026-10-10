@@ -30,11 +30,17 @@ export default function Viewer3D({ modelId }: { modelId: number }) {
     scene.add(fill);
 
     let controls: OrbitControls | undefined;
+    let geometryRef: THREE.BufferGeometry | undefined;
+    let materialRef: THREE.Material | undefined;
 
     new STLLoader().load(
       `/api/models/${modelId}/stl`,
       (geometry) => {
-        if (disposed) return;
+        if (disposed) {
+          geometry.dispose();
+          return;
+        }
+        geometryRef = geometry;
         geometry.center();
         geometry.computeBoundingBox();
 
@@ -43,6 +49,7 @@ export default function Viewer3D({ modelId }: { modelId: number }) {
           metalness: 0.05,
           roughness: 0.65,
         });
+        materialRef = material;
         const mesh = new THREE.Mesh(geometry, material);
         mesh.rotation.x = -Math.PI / 2;
         scene.add(mesh);
@@ -79,6 +86,9 @@ export default function Viewer3D({ modelId }: { modelId: number }) {
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      controls?.dispose();
+      geometryRef?.dispose();
+      materialRef?.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
