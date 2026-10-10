@@ -101,3 +101,11 @@ def test_stats_includes_trash_count_and_recent(tmp_path, monkeypatch):
     assert stats["trash_count"] == 1
     assert stats["total_models"] == 2
     assert [m["id"] for m in stats["recent"]] == [2, 3]
+
+
+def test_filter_by_lists_ignores_unicode_digit_tokens_instead_of_500(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    r = client.get("/api/models?lists=%C2%B2")  # '²' : isdigit()==True mais int() lève ValueError
+
+    assert r.status_code == 200

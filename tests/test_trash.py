@@ -9,8 +9,12 @@ import webapp
 def _make_db(tmp_path):
     db_path = tmp_path / "library.db"
     conn = scanner.init_db(db_path)
-    model_dir = tmp_path / "model_1"
-    model_dir.mkdir()
+    # Les chemins réels produits par scanner.py sont toujours sous
+    # <bibliothèque>/models/... — on reproduit cette structure pour que le
+    # garde-fou de suppression (_is_within_library_models) s'applique comme
+    # en production.
+    model_dir = tmp_path / "models" / "model_1"
+    model_dir.mkdir(parents=True)
     (model_dir / "model.stl").write_bytes(b"fake")
     conn.execute(
         "INSERT INTO models (id, name, path, added_at) VALUES (1, 'A', ?, '2026-01-01')",
@@ -73,6 +77,31 @@ def test_permanent_delete_removes_db_row_and_files(tmp_path, monkeypatch):
     assert client.get("/api/models/1").status_code == 404
     from pathlib import Path
     assert not Path(folder).parent.exists()
+
+
+def test_permanent_delete_never_rmtrees_outside_library_root(tmp_path, monkeypatch):
+    """Une ligne dont le chemin sort de <bibliothèque>/models (legacy, ou
+    insérée à la main) ne doit jamais faire supprimer un dossier arbitraire
+    du disque — seule la ligne DB doit disparaître."""
+    db_path = tmp_path / "library.db"
+    conn = scanner.init_db(db_path)
+    outside_dir = tmp_path / "outside_the_library"
+    outside_dir.mkdir()
+    (outside_dir / "model.stl").write_bytes(b"fake")
+    conn.execute(
+        "INSERT INTO models (id, name, path, added_at) VALUES (99, 'Outside', ?, '2026-01-01')",
+        (str(outside_dir / "model.stl"),),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(webapp, "DB_PATH", db_path)
+    client = TestClient(webapp.app)
+
+    r = client.delete("/api/models/99")
+
+    assert r.status_code == 200
+    assert client.get("/api/models/99").status_code == 404
+    assert outside_dir.exists()  # jamais supprimé : hors de <library>/models
 
 
 def test_permanent_delete_tolerates_already_missing_files(tmp_path, monkeypatch):

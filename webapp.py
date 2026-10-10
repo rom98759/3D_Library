@@ -33,6 +33,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import scanner
+
 DB_PATH = Path(os.environ.get("LIBRARY_DB_PATH", "library.db")).expanduser().resolve()
 IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", "600"))
 IDLE_CHECK_INTERVAL_SECONDS = 30.0
@@ -129,6 +131,15 @@ ORCASLICER_CMD = os.environ.get("ORCASLICER_CMD", "flatpak run com.orcaslicer.Or
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Migre la base au démarrage : une bibliothèque de production existante
+    # peut avoir été créée avant l'introduction de lists/model_lists/
+    # deleted_at/printed. Sans cet appel, toute l'API renvoie 500 tant que
+    # scanner.py n'a pas tourné au moins une fois.
+    if DB_PATH.exists():
+        conn = sqlite3.connect(DB_PATH)
+        scanner.ensure_schema(conn)
+        conn.close()
+
     # L'arrêt automatique n'a de sens que sous activation par socket : un
     # lancement manuel (python3 webapp.py) n'a pas de systemd pour relancer
     # le process ensuite, donc on ne doit jamais s'y arrêter tout seul.
@@ -186,6 +197,18 @@ def get_conn():
     return conn
 
 
+def _is_within_library_models(folder: Path) -> bool:
+    """True si `folder` est bien sous <bibliothèque>/models — jamais un chemin
+    legacy ou inséré à la main qui pointerait ailleurs sur le disque (ex. un
+    dossier source entier, voire /). N'autorise la suppression récursive que
+    dans ce cas."""
+    models_root = (DB_PATH.parent / "models").resolve()
+    try:
+        return folder.resolve().is_relative_to(models_root)
+    except OSError:
+        return False
+
+
 def _attach_lists(conn, models: list[dict]) -> None:
     if not models:
         return
@@ -238,7 +261,7 @@ def create_list(data: ListCreate):
     if not name:
         raise HTTPException(status_code=400, detail="Nom de liste requis")
     conn = get_conn()
-    if conn.execute("SELECT id FROM lists WHERE name = ?", (name,)).fetchone():
+    if conn.execute("SELECT id FROM lists WHERE name = ? COLLATE NOCASE", (name,)).fetchone():
         conn.close()
         raise HTTPException(status_code=409, detail="Une liste avec ce nom existe déjà")
     cur = conn.execute(
@@ -260,7 +283,9 @@ def rename_list(list_id: int, data: ListRename):
     if not conn.execute("SELECT id FROM lists WHERE id = ?", (list_id,)).fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="Liste introuvable")
-    if conn.execute("SELECT id FROM lists WHERE name = ? AND id != ?", (name, list_id)).fetchone():
+    if conn.execute(
+        "SELECT id FROM lists WHERE name = ? COLLATE NOCASE AND id != ?", (name, list_id)
+    ).fetchone():
         conn.close()
         raise HTTPException(status_code=409, detail="Une liste avec ce nom existe déjà")
     conn.execute("UPDATE lists SET name = ? WHERE id = ?", (name, list_id))
@@ -333,11 +358,13 @@ def delete_model(model_id: int):
     conn.close()
 
     folder = Path(model["path"]).parent
-    if folder.exists():
+    if folder.exists() and _is_within_library_models(folder):
         try:
             shutil.rmtree(folder)
         except OSError as e:
             print(f"[webapp] suppression fichiers échouée pour id={model_id} : {e}")
+    elif folder.exists():
+        print(f"[webapp] suppression fichiers ignorée (hors bibliothèque) pour id={model_id} : {folder}")
     return {"message": "Modèle supprimé définitivement", "id": model_id}
 
 
@@ -366,6 +393,7 @@ def batch_action(data: BatchAction):
         }
 
     processed, skipped = [], []
+    folders_to_remove = []  # supprimés sur disque seulement après le commit final
     for model_id in data.ids:
         if model_id not in existing_ids:
             skipped.append(model_id)
@@ -382,12 +410,7 @@ def batch_action(data: BatchAction):
             row = conn.execute("SELECT path FROM models WHERE id = ?", (model_id,)).fetchone()
             conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
             if row:
-                folder = Path(row["path"]).parent
-                if folder.exists():
-                    try:
-                        shutil.rmtree(folder)
-                    except OSError as e:
-                        print(f"[webapp] suppression fichiers échouée pour id={model_id} : {e}")
+                folders_to_remove.append(Path(row["path"]).parent)
         elif data.action == "add_list":
             conn.execute(
                 "INSERT OR IGNORE INTO model_lists (model_id, list_id) VALUES (?, ?)",
@@ -407,6 +430,16 @@ def batch_action(data: BatchAction):
 
     conn.commit()
     conn.close()
+
+    for folder in folders_to_remove:
+        if folder.exists() and _is_within_library_models(folder):
+            try:
+                shutil.rmtree(folder)
+            except OSError as e:
+                print(f"[webapp] suppression fichiers échouée pour {folder} : {e}")
+        elif folder.exists():
+            print(f"[webapp] suppression fichiers ignorée (hors bibliothèque) : {folder}")
+
     return {"processed": processed, "skipped": skipped}
 
 
@@ -444,7 +477,7 @@ def list_models(q: str = "", category: str = "", lists: str = "", printed: str =
     if lists:
         for list_id_str in lists.split(","):
             list_id_str = list_id_str.strip()
-            if not list_id_str.isdigit():
+            if not (list_id_str.isascii() and list_id_str.isdigit()):
                 continue
             query += " AND id IN (SELECT model_id FROM model_lists WHERE list_id = ?)"
             params.append(int(list_id_str))

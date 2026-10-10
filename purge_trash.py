@@ -27,13 +27,34 @@ def _retention_days_from_env() -> int:
         return DEFAULT_RETENTION_DAYS
 
 
+def _library_models_root(conn: sqlite3.Connection) -> Path:
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    return (Path(db_file).parent / "models").resolve()
+
+
+def _is_within_library_models(folder: Path, models_root: Path) -> bool:
+    """True si `folder` est bien sous <bibliothèque>/models — jamais un
+    chemin legacy ou inséré à la main qui pointerait ailleurs sur le disque
+    (ex. un dossier source entier, voire /). N'autorise la suppression
+    récursive que dans ce cas."""
+    try:
+        return folder.resolve().is_relative_to(models_root)
+    except OSError:
+        return False
+
+
 def purge_expired(conn: sqlite3.Connection, retention_days: int, now: datetime | None = None) -> list[int]:
     """Supprime (fichiers + ligne DB) les modèles en corbeille depuis plus de
-    `retention_days` jours. Renvoie les ids effectivement purgés. Une erreur
-    sur un item (fichiers déjà absents, erreur disque) est loguée et ignorée
-    plutôt que de bloquer les suivants."""
+    `retention_days` jours. Renvoie les ids effectivement purgés.
+    - Fichiers déjà absents : la ligne est purgée normalement.
+    - Chemin hors de <bibliothèque>/models : la suppression de fichiers est
+      ignorée (jamais de rmtree arbitraire), mais la ligne est purgée.
+    - Échec disque réel (OSError, ex. permissions) : la ligne N'EST PAS
+      purgée, pour retenter au prochain passage plutôt que perdre la trace
+      de fichiers orphelins."""
     now = now or datetime.now()
     cutoff = now - timedelta(days=retention_days)
+    models_root = _library_models_root(conn)
     rows = conn.execute(
         "SELECT id, path, deleted_at FROM models WHERE deleted_at IS NOT NULL"
     ).fetchall()
@@ -42,12 +63,25 @@ def purge_expired(conn: sqlite3.Connection, retention_days: int, now: datetime |
     for row in rows:
         if datetime.fromisoformat(row["deleted_at"]) > cutoff:
             continue
-        try:
-            folder = Path(row["path"]).parent
-            if folder.exists():
-                shutil.rmtree(folder)
-        except OSError as e:
-            print(f"[purge_trash] suppression fichiers échouée pour id={row['id']} : {e}", file=sys.stderr)
+
+        folder = Path(row["path"]).parent
+        if folder.exists():
+            if not _is_within_library_models(folder, models_root):
+                print(
+                    f"[purge_trash] suppression fichiers ignorée (hors bibliothèque) "
+                    f"pour id={row['id']} : {folder}",
+                    file=sys.stderr,
+                )
+            else:
+                try:
+                    shutil.rmtree(folder)
+                except OSError as e:
+                    print(
+                        f"[purge_trash] suppression fichiers échouée pour id={row['id']} : {e}",
+                        file=sys.stderr,
+                    )
+                    continue  # échec réel : on retentera au prochain passage
+
         conn.execute("DELETE FROM models WHERE id = ?", (row["id"],))
         purged.append(row["id"])
 

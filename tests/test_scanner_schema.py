@@ -1,5 +1,7 @@
 import sqlite3
 
+import pytest
+
 import scanner
 
 
@@ -69,4 +71,14 @@ def test_init_db_enables_foreign_key_cascade_on_model_delete(tmp_path):
 
     remaining = conn.execute("SELECT COUNT(*) FROM model_lists").fetchone()[0]
     assert remaining == 0
+    conn.close()
+
+
+def test_lists_name_unique_index_rejects_case_variant_at_db_level(tmp_path):
+    conn = scanner.init_db(tmp_path / "library.db")
+    conn.execute("INSERT INTO lists (name, created_at) VALUES ('Atelier', '2026-01-01')")
+    conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO lists (name, created_at) VALUES ('atelier', '2026-01-01')")
     conn.close()

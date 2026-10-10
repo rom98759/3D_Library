@@ -85,6 +85,15 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE models ADD COLUMN deleted_at TEXT")
     if "printed" not in existing_cols:
         conn.execute("ALTER TABLE models ADD COLUMN printed INTEGER DEFAULT 0")
+
+    # Filet de sécurité : l'API vérifie déjà les collisions de nom de liste
+    # insensibles à la casse avant insertion/renommage, mais cet index
+    # applique la même règle au niveau de la base (ex. en cas d'insertion
+    # directe hors API).
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_lists_name_nocase "
+        "ON lists(name COLLATE NOCASE)"
+    )
     conn.commit()
 
 # Bruit fréquent dans les noms de fichiers issus de Thingiverse / Printables / exports d'appareil photo

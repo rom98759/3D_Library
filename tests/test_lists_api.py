@@ -46,6 +46,25 @@ def test_create_list_rejects_duplicate_name(tmp_path, monkeypatch):
     assert r.status_code == 409
 
 
+def test_create_list_rejects_duplicate_name_case_insensitively(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/lists", json={"name": "Atelier"})
+
+    r = client.post("/api/lists", json={"name": "atelier"})
+
+    assert r.status_code == 409
+
+
+def test_rename_list_rejects_collision_case_insensitively(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/lists", json={"name": "Atelier"})
+    other_id = client.post("/api/lists", json={"name": "Maison"}).json()["id"]
+
+    r = client.put(f"/api/lists/{other_id}", json={"name": "ATELIER"})
+
+    assert r.status_code == 409
+
+
 def test_get_lists_includes_model_count_excluding_deleted(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     list_id = client.post("/api/lists", json={"name": "Atelier"}).json()["id"]

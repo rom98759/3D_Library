@@ -8,8 +8,12 @@ def _make_db(tmp_path, n=3):
     db_path = tmp_path / "library.db"
     conn = scanner.init_db(db_path)
     for i in range(1, n + 1):
-        model_dir = tmp_path / f"model_{i}"
-        model_dir.mkdir()
+        # Les chemins réels produits par scanner.py sont toujours sous
+        # <bibliothèque>/models/... — on reproduit cette structure pour que
+        # le garde-fou de suppression (_is_within_library_models) s'applique
+        # comme en production.
+        model_dir = tmp_path / "models" / f"model_{i}"
+        model_dir.mkdir(parents=True)
         (model_dir / "model.stl").write_bytes(b"fake")
         conn.execute(
             "INSERT INTO models (id, name, path, added_at) VALUES (?, ?, ?, '2026-01-01')",
@@ -96,3 +100,24 @@ def test_batch_delete_removes_rows_and_files(tmp_path, monkeypatch):
     assert client.get("/api/models/1").status_code == 404
     assert client.get("/api/models/2").status_code == 404
     assert client.get("/api/models/3").status_code == 200
+
+
+def test_batch_delete_never_rmtrees_outside_library_root(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch, n=1)
+    db_path = tmp_path / "library.db"
+    conn = scanner.init_db(db_path)
+    outside_dir = tmp_path / "outside_the_library"
+    outside_dir.mkdir()
+    (outside_dir / "model.stl").write_bytes(b"fake")
+    conn.execute(
+        "INSERT INTO models (id, name, path, added_at) VALUES (99, 'Outside', ?, '2026-01-01')",
+        (str(outside_dir / "model.stl"),),
+    )
+    conn.commit()
+    conn.close()
+
+    r = client.post("/api/models/batch", json={"ids": [99], "action": "delete"})
+
+    assert r.json()["processed"] == [99]
+    assert client.get("/api/models/99").status_code == 404
+    assert outside_dir.exists()  # jamais supprimé : hors de <library>/models
