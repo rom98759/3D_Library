@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./pages/Dashboard";
+import Library from "./pages/Library";
 import { useLists } from "./hooks/useLists";
 import { useStats } from "./hooks/useStats";
 
@@ -42,12 +43,13 @@ export default function App() {
       />
       {view === "dashboard" && <Dashboard stats={stats} lists={lists} onOpenList={openLibrary} />}
       {view === "library" && (
-        <div className="flex-1 p-8">
-          {/* Remplacé par le composant Library dans la Tâche 4 */}
-          <p className="font-mono text-xs text-bp-ink-dim">
-            Bibliothèque (liste={String(libraryListFilter)}, corbeille={String(showingTrash)}) — à venir.
-          </p>
-        </div>
+        <Library
+          listFilter={libraryListFilter}
+          showingTrash={showingTrash}
+          lists={lists}
+          trashCount={stats?.trash_count ?? 0}
+          onToggleTrash={() => setShowingTrash((t) => !t)}
+        />
       )}
     </div>
   );
