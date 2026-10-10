@@ -15,6 +15,9 @@ interface FilterBarProps {
   showingTrash: boolean;
   trashCount: number;
   onToggleTrash: () => void;
+  allSelected: boolean;
+  hasModels: boolean;
+  onToggleSelectAll: () => void;
 }
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -69,6 +72,14 @@ export default function FilterBar(props: FilterBarProps) {
           ))}
         </select>
       )}
+
+      <button
+        className="bp-btn"
+        disabled={!props.hasModels}
+        onClick={props.onToggleSelectAll}
+      >
+        {props.allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+      </button>
 
       <div className="flex border border-white/10 rounded-sm overflow-hidden">
         <button

@@ -120,6 +120,11 @@ export default function Library({
     setLastClickedIndex(index);
   }
 
+  function toggleSelectAll() {
+    setSelected((prev) => (prev.size === models.length ? new Set() : new Set(models.map((m) => m.id))));
+    setLastClickedIndex(null);
+  }
+
   async function togglePrinted(id: number, currentlyPrinted: boolean) {
     try {
       await updateModel(id, { printed: !currentlyPrinted });
@@ -170,6 +175,9 @@ export default function Library({
         showingTrash={showingTrash}
         trashCount={trashCount}
         onToggleTrash={onToggleTrash}
+        allSelected={models.length > 0 && selected.size === models.length}
+        hasModels={models.length > 0}
+        onToggleSelectAll={toggleSelectAll}
       />
 
       {loading && <p className="font-mono text-xs text-bp-ink-dim">Chargement…</p>}
