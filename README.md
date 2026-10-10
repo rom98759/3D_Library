@@ -138,25 +138,53 @@ journalctl --user -u 3d-library-web.service -f      # suit l'interface web
   LIBRARY_DB_PATH=~/3D_Library/library.db python3 webapp.py --library ~/3D_Library --port 8000
   ```
 
-## 5. Variables d'environnement
+## 5. Interface web (frontend React)
+
+L'interface servie par `webapp.py` est une app React/TypeScript buildée avec
+Vite (`frontend/`), chargée depuis `frontend/dist/` — pas de serveur Node en
+production.
+
+**Développement** (hot reload, proxy vers le backend FastAPI) :
+
+```bash
+cd frontend
+npm install
+npm run dev        # serveur de dev Vite sur http://localhost:5173, proxy /api vers http://127.0.0.1:8000
+```
+
+Lance le backend en parallèle (`LIBRARY_DB_PATH=~/3D_Library/library.db python3 webapp.py --port 8000`)
+pour que le proxy ait quelque chose à relayer.
+
+**Production** (ce que sert réellement `webapp.py`) :
+
+```bash
+cd frontend
+npm run build       # génère frontend/dist, servi par FastAPI à la racine
+```
+
+`frontend/node_modules` et `frontend/dist` sont ignorés par git — à builder
+une fois après chaque clone/déploiement.
+
+## 6. Variables d'environnement
 
 | Variable | Défaut | Usage |
 |---|---|---|
 | `LIBRARY_DB_PATH` | `library.db` (dossier courant) | Chemin vers `library.db`, lu par `webapp.py` |
 | `IDLE_TIMEOUT_SECONDS` | `600` (10 min) | Délai d'inactivité avant l'arrêt auto de `webapp.py` (actif uniquement sous activation par socket) |
 | `ORCASLICER_CMD` | `flatpak run com.orcaslicer.OrcaSlicer` | Commande pour ouvrir un modèle dans OrcaSlicer (Linux) |
+| `TRASH_RETENTION_DAYS` | `30` | Nombre de jours avant purge définitive d'un modèle mis à la corbeille (lu par `webapp.py` et `purge_trash.py`) |
 
-## 6. Tests
+## 7. Tests
 
 ```bash
 python3 -m pytest -v
 ```
 
-29 tests, aucune dépendance système requise au-delà de `requirements.txt`
+76 tests, aucune dépendance système requise au-delà de `requirements.txt`
 (les tests mockent `analyze_stl`/`f3d` sauf un test d'intégration réel sur
 un `.3mf` minimal généré à la volée).
 
-## 7. Désinstaller / désactiver
+## 8. Désinstaller / désactiver
 
 ```bash
 systemctl --user disable --now 3d-library-watch.path 3d-library-watch.timer 3d-library-web.socket

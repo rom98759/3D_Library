@@ -645,18 +645,16 @@ FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
 
 @app.get("/")
 def index():
-    frontend_index = FRONTEND_DIST / "index.html"
-    if frontend_index.exists():
-        return FileResponse(frontend_index)
-    return FileResponse(Path(__file__).parent / "static" / "index.html")
+    return FileResponse(FRONTEND_DIST / "index.html")
 
 
+# Gardé conditionnel : frontend/dist est ignoré par git (cf. .gitignore), donc
+# absent sur un clone frais tant que `npm run build` n'a pas tourné une fois.
+# StaticFiles lève une RuntimeError à la construction si le dossier n'existe
+# pas, ce qui casserait l'import de webapp.py (et donc toute la suite de
+# tests) sans ce garde-fou.
 if (FRONTEND_DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
-
-static_dir = Path(__file__).parent / "static"
-static_dir.mkdir(exist_ok=True)
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 if __name__ == "__main__":
