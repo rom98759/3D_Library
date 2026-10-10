@@ -12,7 +12,7 @@ export default function App() {
   const [libraryListFilter, setLibraryListFilter] = useState<number | null>(null);
   const [showingTrash, setShowingTrash] = useState(false);
 
-  const { lists } = useLists();
+  const { lists, refresh: refreshLists } = useLists();
   const { stats, refresh: refreshStats } = useStats();
 
   function openLibrary(listId: number | null) {
@@ -49,6 +49,9 @@ export default function App() {
           lists={lists}
           trashCount={stats?.trash_count ?? 0}
           onToggleTrash={() => setShowingTrash((t) => !t)}
+          onListsChanged={refreshLists}
+          onStatsChanged={refreshStats}
+          onListCreated={() => refreshLists()}
         />
       )}
     </div>
