@@ -67,7 +67,9 @@ export default function App() {
         onRenameList={handleRenameList}
         onDeleteList={handleDeleteList}
       />
-      {view === "dashboard" && <Dashboard stats={stats} lists={lists} onOpenList={openLibrary} />}
+      {view === "dashboard" && (
+        <Dashboard stats={stats} lists={lists} onOpenList={openLibrary} onStatsChanged={refreshStats} />
+      )}
       {view === "library" && (
         <Library
           listFilter={libraryListFilter}

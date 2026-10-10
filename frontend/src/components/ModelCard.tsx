@@ -4,23 +4,33 @@ import type { Model } from "../types";
 interface ModelCardProps {
   model: Model;
   selected: boolean;
-  onToggleSelect: () => void;
+  onToggleSelect: (shiftKey: boolean) => void;
+  onTogglePrinted: () => void;
   onOpenDetail: () => void;
 }
 
-export default function ModelCard({ model, selected, onToggleSelect, onOpenDetail }: ModelCardProps) {
+export default function ModelCard({ model, selected, onToggleSelect, onTogglePrinted, onOpenDetail }: ModelCardProps) {
   return (
     <div className={`bp-card cursor-pointer ${selected ? "selected" : ""}`} onClick={onOpenDetail}>
       <div
         className="bp-checkbox"
         onClick={(e) => {
           e.stopPropagation();
-          onToggleSelect();
+          onToggleSelect(e.shiftKey);
         }}
       >
         {selected ? "✓" : ""}
       </div>
-      {model.printed === 1 && <div className="bp-printed-badge">✓ imprimé</div>}
+      <div
+        className={`bp-printed-badge ${model.printed === 1 ? "" : "off"}`}
+        title="Inverser le statut imprimé"
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePrinted();
+        }}
+      >
+        {model.printed === 1 ? "✓ imprimé" : "à imprimer"}
+      </div>
       <div className="bp-thumb">
         {model.thumbnail_path ? (
           <img src={`/api/models/${model.id}/thumbnail`} alt={model.name} loading="lazy" />

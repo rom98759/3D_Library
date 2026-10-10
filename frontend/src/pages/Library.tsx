@@ -4,7 +4,7 @@ import FilterBar from "../components/FilterBar";
 import ModelCard from "../components/ModelCard";
 import ModelDetailOverlay from "../components/ModelDetailOverlay";
 import ModelRow from "../components/ModelRow";
-import { batchAction } from "../api";
+import { batchAction, updateModel } from "../api";
 import { useModels } from "../hooks/useModels";
 import type { ListSummary, SortKey } from "../types";
 
@@ -35,15 +35,18 @@ export default function Library({
   const [sort, setSort] = useState<SortKey>("added_desc");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
 
   useEffect(() => {
     setActiveListIds(listFilter ? [listFilter] : []);
     setSelected(new Set());
+    setLastClickedIndex(null);
   }, [listFilter]);
 
   useEffect(() => {
     setSelected(new Set());
+    setLastClickedIndex(null);
   }, [showingTrash]);
 
   // Si une liste filtrée via une chip (plutôt que depuis la sidebar) est
@@ -76,6 +79,7 @@ export default function Library({
   // pendant la fenêtre de chargement.
   useEffect(() => {
     setSelected(new Set());
+    setLastClickedIndex(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(params)]);
 
@@ -97,16 +101,33 @@ export default function Library({
     setActiveListIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
-  function toggleSelect(id: number) {
+  // Clic + Maj : sélectionne toute la plage entre le dernier élément cliqué
+  // et celui-ci, dans l'ordre d'affichage actuel — pratique pour sélectionner
+  // beaucoup de modèles d'un coup plutôt que de cocher chaque case une à une.
+  function toggleSelect(id: number, index: number, shiftKey: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
+      if (shiftKey && lastClickedIndex !== null) {
+        const [start, end] = index < lastClickedIndex ? [index, lastClickedIndex] : [lastClickedIndex, index];
+        for (let i = start; i <= end; i++) next.add(models[i].id);
+      } else if (next.has(id)) {
         next.delete(id);
       } else {
         next.add(id);
       }
       return next;
     });
+    setLastClickedIndex(index);
+  }
+
+  async function togglePrinted(id: number, currentlyPrinted: boolean) {
+    try {
+      await updateModel(id, { printed: !currentlyPrinted });
+      refresh();
+      onStatsChanged();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erreur lors du changement de statut imprimé");
+    }
   }
 
   async function runBatch(action: Parameters<typeof batchAction>[0]["action"], extra: object = {}) {
@@ -160,12 +181,13 @@ export default function Library({
 
       {!loading && models.length > 0 && viewMode === "grid" && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
-          {models.map((model) => (
+          {models.map((model, index) => (
             <ModelCard
               key={model.id}
               model={model}
               selected={selected.has(model.id)}
-              onToggleSelect={() => toggleSelect(model.id)}
+              onToggleSelect={(shiftKey) => toggleSelect(model.id, index, shiftKey)}
+              onTogglePrinted={() => togglePrinted(model.id, model.printed === 1)}
               onOpenDetail={() => setDetailId(model.id)}
             />
           ))}
@@ -178,12 +200,13 @@ export default function Library({
             <span /> <span /> <span>Nom</span> <span>Listes</span> <span>Poids</span> <span>Volume</span>{" "}
             <span>{showingTrash ? "Purge le" : "Ajouté le"}</span> <span>Imprimé</span>
           </div>
-          {models.map((model) => (
+          {models.map((model, index) => (
             <ModelRow
               key={model.id}
               model={model}
               selected={selected.has(model.id)}
-              onToggleSelect={() => toggleSelect(model.id)}
+              onToggleSelect={(shiftKey) => toggleSelect(model.id, index, shiftKey)}
+              onTogglePrinted={() => togglePrinted(model.id, model.printed === 1)}
               onOpenDetail={() => setDetailId(model.id)}
             />
           ))}

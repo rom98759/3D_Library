@@ -1,17 +1,23 @@
+import { useState } from "react";
 import { dimSvg } from "../lib/dimSvg";
 import type { ListSummary, Model, Stats } from "../types";
+import ModelDetailOverlay from "../components/ModelDetailOverlay";
 import StatBar from "../components/StatBar";
 
 interface DashboardProps {
   stats: Stats | null;
   lists: ListSummary[];
   onOpenList: (listId: number | null) => void;
+  onStatsChanged: () => void;
 }
 
-function RecentCard({ model }: { model: Model }) {
+function RecentCard({ model, onOpenDetail }: { model: Model; onOpenDetail: () => void }) {
   const isNew = Date.now() - new Date(model.added_at).getTime() < 24 * 3600 * 1000;
   return (
-    <div className="w-[150px] flex-shrink-0 bg-bp-panel border border-white/10 rounded-sm p-2.5">
+    <div
+      className="w-[150px] flex-shrink-0 bg-bp-panel border border-white/10 rounded-sm p-2.5 cursor-pointer hover:border-bp-cyan"
+      onClick={onOpenDetail}
+    >
       {isNew && (
         <span className="inline-block bg-bp-yellow/10 text-bp-yellow border border-bp-yellow font-mono text-[9px] px-1 rounded-sm mb-1.5">
           NOUVEAU
@@ -35,7 +41,9 @@ function RecentCard({ model }: { model: Model }) {
   );
 }
 
-export default function Dashboard({ stats, lists, onOpenList }: DashboardProps) {
+export default function Dashboard({ stats, lists, onOpenList, onStatsChanged }: DashboardProps) {
+  const [detailId, setDetailId] = useState<number | null>(null);
+
   return (
     <div className="flex-1 p-8 pb-24">
       <div className="flex justify-between items-end mb-7 border-b border-dashed border-white/10 pb-4">
@@ -48,7 +56,7 @@ export default function Dashboard({ stats, lists, onOpenList }: DashboardProps) 
       </div>
       <div className="flex gap-3.5 overflow-x-auto pb-2">
         {(stats?.recent ?? []).map((m) => (
-          <RecentCard key={m.id} model={m} />
+          <RecentCard key={m.id} model={m} onOpenDetail={() => setDetailId(m.id)} />
         ))}
         {stats && stats.recent.length === 0 && (
           <div className="font-mono text-xs text-bp-ink-dim">Aucun modèle pour le moment.</div>
@@ -77,6 +85,16 @@ export default function Dashboard({ stats, lists, onOpenList }: DashboardProps) 
           </div>
         )}
       </div>
+
+      {detailId !== null && (
+        <ModelDetailOverlay
+          modelId={detailId}
+          showingTrash={false}
+          lists={lists}
+          onClose={() => setDetailId(null)}
+          onChanged={onStatsChanged}
+        />
+      )}
     </div>
   );
 }

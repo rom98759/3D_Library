@@ -4,11 +4,12 @@ import type { Model } from "../types";
 interface ModelRowProps {
   model: Model;
   selected: boolean;
-  onToggleSelect: () => void;
+  onToggleSelect: (shiftKey: boolean) => void;
+  onTogglePrinted: () => void;
   onOpenDetail: () => void;
 }
 
-export default function ModelRow({ model, selected, onToggleSelect, onOpenDetail }: ModelRowProps) {
+export default function ModelRow({ model, selected, onToggleSelect, onTogglePrinted, onOpenDetail }: ModelRowProps) {
   return (
     <div
       className={`grid grid-cols-[32px_48px_2fr_1.4fr_90px_90px_90px_70px] items-center gap-2.5 px-3 py-2 border-t border-white/5 bg-bp-panel text-xs cursor-pointer ${selected ? "ring-1 ring-bp-yellow" : ""}`}
@@ -18,7 +19,7 @@ export default function ModelRow({ model, selected, onToggleSelect, onOpenDetail
         className="bp-checkbox relative top-0 left-0"
         onClick={(e) => {
           e.stopPropagation();
-          onToggleSelect();
+          onToggleSelect(e.shiftKey);
         }}
       >
         {selected ? "✓" : ""}
@@ -52,7 +53,16 @@ export default function ModelRow({ model, selected, onToggleSelect, onOpenDetail
           ? `Purge le ${new Date(model.purge_at).toLocaleDateString("fr-FR")}`
           : new Date(model.added_at).toLocaleDateString("fr-FR")}
       </div>
-      <div className="text-bp-green">{model.printed === 1 ? "✓" : "—"}</div>
+      <div
+        className={`cursor-pointer ${model.printed === 1 ? "text-bp-green" : "text-bp-ink-dim"}`}
+        title="Inverser le statut imprimé"
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePrinted();
+        }}
+      >
+        {model.printed === 1 ? "✓" : "—"}
+      </div>
     </div>
   );
 }

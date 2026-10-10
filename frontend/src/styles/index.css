@@ -48,7 +48,10 @@
     @apply bg-bp-yellow text-bp-deep border-bp-yellow;
   }
   .bp-printed-badge {
-    @apply absolute top-2.5 right-2.5 font-mono text-[9px] text-bp-green border border-bp-green px-1.5 py-0.5 rounded-sm;
+    @apply absolute top-2.5 right-2.5 font-mono text-[9px] text-bp-green border border-bp-green px-1.5 py-0.5 rounded-sm cursor-pointer;
+  }
+  .bp-printed-badge.off {
+    @apply text-bp-ink-dim border-bp-ink-dim bg-transparent;
   }
   .bp-thumb {
     @apply h-[100px] bg-bp-deep border border-white/5 my-4 flex items-center justify-center text-[10px] text-bp-ink-dim font-mono overflow-hidden;
