@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: "Work Sans", sans-serif;
+    color: #E9EFF3;
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px) 0 0/32px 32px,
+      linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px) 0 0/32px 32px,
+      #0F2A44;
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .bp-nav-top {
+    @apply flex items-center gap-2 px-2.5 py-2 mb-0.5 text-sm rounded cursor-pointer text-bp-ink;
+  }
+  .bp-nav-top.active {
+    @apply bg-bp-panel text-bp-cyan;
+  }
+  .bp-nav-item {
+    @apply flex justify-between items-center px-2.5 py-2 mb-0.5 text-sm rounded cursor-pointer;
+  }
+  .bp-nav-item:hover {
+    @apply bg-bp-panel;
+  }
+  .bp-nav-item.active {
+    @apply bg-bp-panel text-bp-cyan border-l-2 border-bp-cyan;
+  }
+  .bp-nav-count {
+    @apply font-mono text-xs text-bp-ink-dim;
+  }
+
+  .bp-card {
+    @apply bg-bp-panel border border-white/10 rounded-sm p-3.5 relative;
+  }
+  .bp-card.selected {
+    @apply border-bp-yellow ring-1 ring-bp-yellow;
+  }
+  .bp-checkbox {
+    @apply absolute top-2.5 left-2.5 w-[18px] h-[18px] border border-bp-ink-dim rounded-sm bg-bp-deep flex items-center justify-center text-[11px] cursor-pointer;
+  }
+  .bp-card.selected .bp-checkbox {
+    @apply bg-bp-yellow text-bp-deep border-bp-yellow;
+  }
+  .bp-printed-badge {
+    @apply absolute top-2.5 right-2.5 font-mono text-[9px] text-bp-green border border-bp-green px-1.5 py-0.5 rounded-sm;
+  }
+  .bp-thumb {
+    @apply h-[100px] bg-bp-deep border border-white/5 my-4 flex items-center justify-center text-[10px] text-bp-ink-dim font-mono overflow-hidden;
+  }
+  .bp-thumb img {
+    @apply w-full h-full object-contain;
+  }
+  .bp-name {
+    @apply font-display text-sm uppercase tracking-wide mb-2;
+  }
+  .bp-pill {
+    @apply font-mono text-[9px] text-bp-cyan border border-bp-cyan bg-bp-cyan/10 px-1.5 py-0.5 rounded-full;
+  }
+  .bp-meta {
+    @apply font-mono text-[10px] text-bp-ink-dim border-t border-dashed border-white/10 pt-2 flex justify-between;
+  }
+
+  .bp-chip {
+    @apply bg-bp-panel border border-white/10 rounded-full px-3 py-1.5 font-mono text-[11px] cursor-pointer;
+  }
+  .bp-chip.active {
+    @apply border-bp-cyan text-bp-cyan bg-bp-cyan/10;
+  }
+
+  .bp-batchbar {
+    @apply fixed bottom-5 left-1/2 -translate-x-1/2 bg-bp-panel2 border border-bp-cyan rounded px-4 py-2.5 flex items-center gap-2.5 font-mono text-xs shadow-2xl z-20;
+  }
+  .bp-batchbar button {
+    @apply bg-transparent border border-white/10 text-bp-ink h-8 px-3.5 rounded-sm cursor-pointer font-mono text-[11px] whitespace-nowrap flex items-center gap-1.5;
+  }
+  .bp-batchbar button:hover {
+    @apply border-bp-cyan text-bp-cyan;
+  }
+  .bp-batchbar button.danger:hover {
+    @apply border-bp-red text-bp-red;
+  }
+
+  .bp-detail-overlay {
+    @apply fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-30;
+  }
+  .bp-detail {
+    @apply bg-bp-panel2 border border-white/10 rounded-sm max-w-[460px] w-full p-6;
+  }
+  .bp-btn {
+    @apply bg-transparent border border-white/10 text-bp-ink font-mono uppercase text-[11px] px-3.5 py-2 rounded-sm cursor-pointer;
+  }
+  .bp-btn:hover {
+    @apply border-bp-cyan text-bp-cyan;
+  }
+  .bp-btn.primary {
+    @apply border-bp-yellow text-bp-yellow;
+  }
+}

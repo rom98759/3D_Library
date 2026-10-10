@@ -640,10 +640,19 @@ def get_stats():
     }
 
 
+FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
+
+
 @app.get("/")
 def index():
+    frontend_index = FRONTEND_DIST / "index.html"
+    if frontend_index.exists():
+        return FileResponse(frontend_index)
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
+
+if (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
 
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
