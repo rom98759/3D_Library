@@ -31,15 +31,23 @@ export default function App() {
   async function handleRenameList(list: ListSummary) {
     const name = window.prompt("Nouveau nom de la liste :", list.name);
     if (!name || name.trim() === list.name) return;
-    await renameList(list.id, name.trim());
-    refreshLists();
+    try {
+      await renameList(list.id, name.trim());
+      refreshLists();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erreur lors du renommage de la liste");
+    }
   }
 
   async function handleDeleteList(list: ListSummary) {
     if (!window.confirm(`Supprimer la liste "${list.name}" ? Les modèles ne seront pas supprimés.`)) return;
-    await deleteList(list.id);
-    refreshLists();
-    if (libraryListFilter === list.id) setLibraryListFilter(null);
+    try {
+      await deleteList(list.id);
+      refreshLists();
+      if (libraryListFilter === list.id) setLibraryListFilter(null);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erreur lors de la suppression de la liste");
+    }
   }
 
   return (

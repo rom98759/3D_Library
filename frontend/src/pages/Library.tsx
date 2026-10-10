@@ -46,15 +46,33 @@ export default function Library({
     setSelected(new Set());
   }, [showingTrash]);
 
+  // Si une liste filtrée via une chip (plutôt que depuis la sidebar) est
+  // supprimée ailleurs, elle disparaît de `lists` sans que `listFilter` ne
+  // change — sans ce nettoyage, le filtre resterait bloqué sur un id de
+  // liste qui n'existe plus, avec aucune chip pour le retirer.
+  useEffect(() => {
+    const validIds = new Set(lists.map((l) => l.id));
+    setActiveListIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [lists]);
+
   const params = useMemo(
     () => ({ q: q || undefined, lists: activeListIds, printed, sort }),
     [q, activeListIds, printed, sort]
   );
   const { models, loading, refresh } = useModels(params, showingTrash);
 
-  // Une fois les modèles rechargés (filtre changé), la sélection ne doit
-  // référencer que des ids encore visibles — sinon "supprimer" sur une
-  // sélection obsolète agirait sur du vide silencieusement.
+  // Dès qu'un filtre change, la sélection est vidée immédiatement — sans
+  // attendre la fin du rechargement, sinon la barre d'actions resterait
+  // active sur des ids qui ne correspondent déjà plus à ce qui est affiché
+  // pendant la fenêtre de chargement.
+  useEffect(() => {
+    setSelected(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(params)]);
+
+  // Une fois les modèles rechargés, la sélection ne doit référencer que des
+  // ids encore visibles — filet de sécurité supplémentaire (ex. un modèle
+  // supprimé par ailleurs entre deux rechargements).
   useEffect(() => {
     setSelected((prev) => {
       const visibleIds = new Set(models.map((m) => m.id));
@@ -80,11 +98,21 @@ export default function Library({
 
   async function runBatch(action: Parameters<typeof batchAction>[0]["action"], extra: object = {}) {
     if (selected.size === 0) return;
-    await batchAction({ ids: Array.from(selected), action, ...extra });
-    setSelected(new Set());
-    refresh();
-    onListsChanged();
-    onStatsChanged();
+    if (action === "delete") {
+      const count = selected.size;
+      if (!window.confirm(`Supprimer définitivement ${count} modèle${count > 1 ? "s" : ""} et ses fichiers ? Cette action est irréversible.`)) {
+        return;
+      }
+    }
+    try {
+      await batchAction({ ids: Array.from(selected), action, ...extra });
+      setSelected(new Set());
+      refresh();
+      onListsChanged();
+      onStatsChanged();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erreur lors de l'action groupée");
+    }
   }
 
   return (

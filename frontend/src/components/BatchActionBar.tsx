@@ -21,7 +21,7 @@ export default function BatchActionBar(props: BatchActionBarProps) {
   if (props.count === 0) return null;
 
   return (
-    <div className="bp-batchbar relative">
+    <div className="bp-batchbar">
       <span className="text-bp-yellow font-bold pr-2 border-r border-white/10">
         {props.count} sélectionné{props.count > 1 ? "s" : ""}
       </span>

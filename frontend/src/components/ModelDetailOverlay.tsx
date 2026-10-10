@@ -52,13 +52,15 @@ export default function ModelDetailOverlay({
     });
   }, [modelId]);
 
-  async function handleAction(fn: () => Promise<unknown>, okText: string) {
+  async function handleAction(fn: () => Promise<unknown>, okText: string): Promise<boolean> {
     try {
       await fn();
-      setMessage({ text: okText, kind: "ok" });
+      if (okText) setMessage({ text: okText, kind: "ok" });
       onChanged();
+      return true;
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : "Erreur", kind: "error" });
+      return false;
     }
   }
 
@@ -207,20 +209,29 @@ export default function ModelDetailOverlay({
               <button className="bp-btn" onClick={() => setEditing((e) => !e)}>
                 Modifier
               </button>
-              <button className="bp-btn" onClick={() => handleAction(() => trashModel(model.id), "Mis à la corbeille").then(onClose)}>
+              <button
+                className="bp-btn"
+                onClick={() => handleAction(() => trashModel(model.id), "Mis à la corbeille").then((ok) => ok && onClose())}
+              >
                 Mettre à la corbeille
               </button>
             </>
           )}
           {showingTrash && (
-            <button className="bp-btn primary" onClick={() => handleAction(() => restoreModel(model.id), "Restauré").then(onClose)}>
+            <button
+              className="bp-btn primary"
+              onClick={() => handleAction(() => restoreModel(model.id), "Restauré").then((ok) => ok && onClose())}
+            >
               Restaurer
             </button>
           )}
           <button
             className="bp-btn"
             style={{ borderColor: "#E2725B", color: "#E2725B" }}
-            onClick={() => handleAction(() => deleteModelPermanently(model.id), "Supprimé définitivement").then(onClose)}
+            onClick={() => {
+              if (!window.confirm("Supprimer définitivement ce modèle et ses fichiers ? Cette action est irréversible.")) return;
+              handleAction(() => deleteModelPermanently(model.id), "Supprimé définitivement").then((ok) => ok && onClose());
+            }}
           >
             Supprimer définitivement
           </button>
