@@ -2,8 +2,10 @@ import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./pages/Dashboard";
 import Library from "./pages/Library";
+import { deleteList, renameList } from "./api";
 import { useLists } from "./hooks/useLists";
 import { useStats } from "./hooks/useStats";
+import type { ListSummary } from "./types";
 
 type View = "dashboard" | "library";
 
@@ -26,6 +28,20 @@ export default function App() {
     setView("library");
   }
 
+  async function handleRenameList(list: ListSummary) {
+    const name = window.prompt("Nouveau nom de la liste :", list.name);
+    if (!name || name.trim() === list.name) return;
+    await renameList(list.id, name.trim());
+    refreshLists();
+  }
+
+  async function handleDeleteList(list: ListSummary) {
+    if (!window.confirm(`Supprimer la liste "${list.name}" ? Les modèles ne seront pas supprimés.`)) return;
+    await deleteList(list.id);
+    refreshLists();
+    if (libraryListFilter === list.id) setLibraryListFilter(null);
+  }
+
   return (
     <div className="flex min-h-screen">
       <Sidebar
@@ -40,6 +56,8 @@ export default function App() {
         }}
         onSelectLibrary={openLibrary}
         onSelectTrash={openTrash}
+        onRenameList={handleRenameList}
+        onDeleteList={handleDeleteList}
       />
       {view === "dashboard" && <Dashboard stats={stats} lists={lists} onOpenList={openLibrary} />}
       {view === "library" && (

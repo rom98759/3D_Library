@@ -9,6 +9,8 @@ interface SidebarProps {
   onSelectDashboard: () => void;
   onSelectLibrary: (listId: number | null) => void;
   onSelectTrash: () => void;
+  onRenameList: (list: ListSummary) => void;
+  onDeleteList: (list: ListSummary) => void;
 }
 
 export default function Sidebar({
@@ -20,6 +22,8 @@ export default function Sidebar({
   onSelectDashboard,
   onSelectLibrary,
   onSelectTrash,
+  onRenameList,
+  onDeleteList,
 }: SidebarProps) {
   return (
     <div className="w-[220px] border-r border-white/10 p-5 px-4 flex-shrink-0">
@@ -43,11 +47,32 @@ export default function Sidebar({
       {lists.map((list) => (
         <div
           key={list.id}
-          className={`bp-nav-item ${view === "library" && !showingTrash && activeListId === list.id ? "active" : ""}`}
-          onClick={() => onSelectLibrary(list.id)}
+          className={`bp-nav-item group ${view === "library" && !showingTrash && activeListId === list.id ? "active" : ""}`}
         >
-          <span>{list.name}</span>
+          <span className="flex-1 cursor-pointer" onClick={() => onSelectLibrary(list.id)}>
+            {list.name}
+          </span>
           <span className="bp-nav-count">{list.model_count}</span>
+          <span
+            className="opacity-0 group-hover:opacity-100 ml-1 cursor-pointer text-bp-ink-dim hover:text-bp-cyan"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRenameList(list);
+            }}
+            title="Renommer"
+          >
+            ✎
+          </span>
+          <span
+            className="opacity-0 group-hover:opacity-100 ml-1 cursor-pointer text-bp-ink-dim hover:text-bp-red"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteList(list);
+            }}
+            title="Supprimer la liste"
+          >
+            ✕
+          </span>
         </div>
       ))}
 
