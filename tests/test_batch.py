@@ -121,3 +121,13 @@ def test_batch_delete_never_rmtrees_outside_library_root(tmp_path, monkeypatch):
     assert r.json()["processed"] == [99]
     assert client.get("/api/models/99").status_code == 404
     assert outside_dir.exists()  # jamais supprimé : hors de <library>/models
+
+
+def test_batch_deduplicates_repeated_ids_in_processed(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    r = client.post("/api/models/batch", json={"ids": [1, 1, 2], "action": "set_printed", "printed": True})
+
+    body = r.json()
+    assert sorted(body["processed"]) == [1, 2]
+    assert body["skipped"] == []

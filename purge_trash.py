@@ -61,7 +61,15 @@ def purge_expired(conn: sqlite3.Connection, retention_days: int, now: datetime |
 
     purged = []
     for row in rows:
-        if datetime.fromisoformat(row["deleted_at"]) > cutoff:
+        try:
+            deleted_at = datetime.fromisoformat(row["deleted_at"])
+        except ValueError:
+            print(
+                f"[purge_trash] deleted_at invalide pour id={row['id']} : {row['deleted_at']!r} — ignoré",
+                file=sys.stderr,
+            )
+            continue
+        if deleted_at > cutoff:
             continue
 
         folder = Path(row["path"]).parent

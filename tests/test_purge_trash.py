@@ -158,3 +158,23 @@ def test_purge_expired_keeps_db_row_when_rmtree_fails_for_a_real_reason(tmp_path
     remaining_ids = {r["id"] for r in conn.execute("SELECT id FROM models")}
     assert remaining_ids == {1}
     conn.close()
+
+
+def test_purge_expired_skips_a_malformed_deleted_at_without_crashing_the_batch():
+    now = datetime(2026, 6, 1)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        db_path = _make_db_with_trashed_models(tmp_path, now)
+        conn = scanner.init_db(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("UPDATE models SET deleted_at = 'not-a-date' WHERE id = 1")
+        conn.commit()
+
+        purged = purge_trash.purge_expired(conn, retention_days=30, now=now)
+
+        assert 1 not in purged  # ligne malformée ignorée, pas de crash
+        assert 3 in purged  # le reste du lot est traité normalement
+        remaining_ids = {r["id"] for r in conn.execute("SELECT id FROM models")}
+        assert 1 in remaining_ids  # laissée en place pour inspection manuelle
+        conn.close()

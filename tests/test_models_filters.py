@@ -109,3 +109,40 @@ def test_filter_by_lists_ignores_unicode_digit_tokens_instead_of_500(tmp_path, m
     r = client.get("/api/models?lists=%C2%B2")  # '²' : isdigit()==True mais int() lève ValueError
 
     assert r.status_code == 200
+
+
+def test_search_percent_literal_does_not_match_everything(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    ids = [m["id"] for m in client.get("/api/models?q=%25").json()]
+
+    assert ids == []
+
+
+def test_search_underscore_is_literal_not_a_wildcard(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    ids = [m["id"] for m in client.get("/api/models?q=Z_bre").json()]
+
+    assert ids == []
+
+
+def test_sort_has_a_deterministic_tie_breaker_for_equal_weights(tmp_path, monkeypatch):
+    db_path = tmp_path / "library.db"
+    conn = scanner.init_db(db_path)
+    conn.execute(
+        "INSERT INTO models (id, name, path, added_at, estimated_weight_g) VALUES "
+        "(1, 'A', '/a', '2026-01-01', 10.0)"
+    )
+    conn.execute(
+        "INSERT INTO models (id, name, path, added_at, estimated_weight_g) VALUES "
+        "(2, 'B', '/b', '2026-01-02', 10.0)"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(webapp, "DB_PATH", db_path)
+    client = TestClient(webapp.app)
+
+    ids = [m["id"] for m in client.get("/api/models?sort=weight_desc").json()]
+
+    assert ids == [2, 1]  # poids égal : id DESC comme départage explicite

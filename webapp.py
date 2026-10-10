@@ -42,14 +42,14 @@ SD_LISTEN_FDS_START = 3  # convention systemd : premier socket passé = fd 3
 TRASH_RETENTION_DAYS = int(os.environ.get("TRASH_RETENTION_DAYS", "30"))
 
 SORT_COLUMNS = {
-    "added_desc": "added_at DESC",
-    "added_asc": "added_at ASC",
-    "name_asc": "name COLLATE NOCASE ASC",
-    "name_desc": "name COLLATE NOCASE DESC",
-    "weight_desc": "estimated_weight_g DESC",
-    "weight_asc": "estimated_weight_g ASC",
-    "volume_desc": "volume DESC",
-    "volume_asc": "volume ASC",
+    "added_desc": "added_at DESC, id DESC",
+    "added_asc": "added_at ASC, id DESC",
+    "name_asc": "name COLLATE NOCASE ASC, id DESC",
+    "name_desc": "name COLLATE NOCASE DESC, id DESC",
+    "weight_desc": "estimated_weight_g DESC, id DESC",
+    "weight_asc": "estimated_weight_g ASC, id DESC",
+    "volume_desc": "volume DESC, id DESC",
+    "volume_asc": "volume ASC, id DESC",
 }
 
 
@@ -331,7 +331,7 @@ def trash_model(model_id: int):
     get_model_or_404(model_id)
     conn = get_conn()
     conn.execute(
-        "UPDATE models SET deleted_at = ? WHERE id = ?",
+        "UPDATE models SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
         (datetime.now().isoformat(), model_id),
     )
     conn.commit()
@@ -383,25 +383,27 @@ def batch_action(data: BatchAction):
         conn.close()
         raise HTTPException(status_code=400, detail="printed requis pour cette action")
 
+    unique_ids = list(dict.fromkeys(data.ids))  # dédoublonne en gardant l'ordre
+
     existing_ids = set()
-    if data.ids:
-        placeholders = ",".join("?" * len(data.ids))
+    if unique_ids:
+        placeholders = ",".join("?" * len(unique_ids))
         existing_ids = {
             r["id"] for r in conn.execute(
-                f"SELECT id FROM models WHERE id IN ({placeholders})", data.ids,
+                f"SELECT id FROM models WHERE id IN ({placeholders})", unique_ids,
             ).fetchall()
         }
 
     processed, skipped = [], []
     folders_to_remove = []  # supprimés sur disque seulement après le commit final
-    for model_id in data.ids:
+    for model_id in unique_ids:
         if model_id not in existing_ids:
             skipped.append(model_id)
             continue
 
         if data.action == "trash":
             conn.execute(
-                "UPDATE models SET deleted_at = ? WHERE id = ?",
+                "UPDATE models SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
                 (datetime.now().isoformat(), model_id),
             )
         elif data.action == "restore":
@@ -453,8 +455,11 @@ def list_trash():
     _attach_lists(conn, models)
     conn.close()
     for m in models:
-        purge_at = datetime.fromisoformat(m["deleted_at"]) + timedelta(days=TRASH_RETENTION_DAYS)
-        m["purge_at"] = purge_at.isoformat()
+        try:
+            purge_at = datetime.fromisoformat(m["deleted_at"]) + timedelta(days=TRASH_RETENTION_DAYS)
+            m["purge_at"] = purge_at.isoformat()
+        except ValueError:
+            m["purge_at"] = None
     return models
 
 
@@ -466,8 +471,9 @@ def list_models(q: str = "", category: str = "", lists: str = "", printed: str =
     params = []
 
     if q:
-        query += " AND (name LIKE ? OR tags LIKE ? OR original_filename LIKE ?)"
-        like = f"%{q}%"
+        query += " AND (name LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR original_filename LIKE ? ESCAPE '\\')"
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
         params += [like, like, like]
 
     if category:

@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -122,3 +123,30 @@ def test_permanent_delete_cascades_model_lists_rows(tmp_path, monkeypatch):
 
     lists = client.get("/api/lists").json()
     assert next(l for l in lists if l["id"] == list_id)["model_count"] == 0
+
+
+def test_trashing_an_already_trashed_model_does_not_reset_the_purge_clock(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/models/1/trash")
+    first_deleted_at = next(m for m in client.get("/api/trash").json() if m["id"] == 1)["deleted_at"]
+
+    client.post("/api/models/1/trash")
+
+    second_deleted_at = next(m for m in client.get("/api/trash").json() if m["id"] == 1)["deleted_at"]
+    assert second_deleted_at == first_deleted_at
+
+
+def test_list_trash_tolerates_a_malformed_deleted_at_without_500(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/models/1/trash")
+    conn = sqlite3.connect(webapp.DB_PATH)
+    conn.execute("UPDATE models SET deleted_at = 'not-a-date' WHERE id = 2")
+    conn.commit()
+    conn.close()
+
+    r = client.get("/api/trash")
+
+    assert r.status_code == 200
+    by_id = {m["id"]: m for m in r.json()}
+    assert "purge_at" in by_id[1]
+    assert by_id[2]["purge_at"] is None
