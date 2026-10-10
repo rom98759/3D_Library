@@ -91,11 +91,17 @@ ln -sf ~/Documents/Code/3d/library/systemd/3d-library-watch.timer  ~/.config/sys
 ln -sf ~/Documents/Code/3d/library/systemd/3d-library-web.socket   ~/.config/systemd/user/
 ln -sf ~/Documents/Code/3d/library/systemd/3d-library-web.service  ~/.config/systemd/user/
 
+# Corbeille : purge définitive quotidienne des modèles supprimés depuis
+# plus de TRASH_RETENTION_DAYS jours (30 par défaut)
+ln -sf ~/Documents/Code/3d/library/systemd/3d-library-purge.service ~/.config/systemd/user/
+ln -sf ~/Documents/Code/3d/library/systemd/3d-library-purge.timer   ~/.config/systemd/user/
+
 systemctl --user daemon-reload
 
 systemctl --user enable --now 3d-library-watch.path
 systemctl --user enable --now 3d-library-watch.timer
 systemctl --user enable --now 3d-library-web.socket
+systemctl --user enable --now 3d-library-purge.timer
 
 # Pour que les services tournent même sans session graphique ouverte
 # (et survivent à une déconnexion) :
@@ -180,15 +186,15 @@ une fois après chaque clone/déploiement.
 python3 -m pytest -v
 ```
 
-76 tests, aucune dépendance système requise au-delà de `requirements.txt`
+84 tests, aucune dépendance système requise au-delà de `requirements.txt`
 (les tests mockent `analyze_stl`/`f3d` sauf un test d'intégration réel sur
 un `.3mf` minimal généré à la volée).
 
 ## 8. Désinstaller / désactiver
 
 ```bash
-systemctl --user disable --now 3d-library-watch.path 3d-library-watch.timer 3d-library-web.socket
-rm ~/.config/systemd/user/3d-library-watch.{path,service,timer} ~/.config/systemd/user/3d-library-web.{socket,service}
+systemctl --user disable --now 3d-library-watch.path 3d-library-watch.timer 3d-library-web.socket 3d-library-purge.timer
+rm ~/.config/systemd/user/3d-library-watch.{path,service,timer} ~/.config/systemd/user/3d-library-web.{socket,service} ~/.config/systemd/user/3d-library-purge.{service,timer}
 systemctl --user daemon-reload
 ```
 
