@@ -30,3 +30,13 @@ def test_webapp_migrates_legacy_db_on_startup(tmp_path, monkeypatch):
         r = client.get("/api/models")
 
     assert r.status_code == 200
+
+
+def test_root_route_gives_a_clear_error_when_frontend_is_not_built(tmp_path, monkeypatch):
+    monkeypatch.setattr(webapp, "FRONTEND_DIST", tmp_path / "frontend" / "dist")
+
+    client = TestClient(webapp.app, raise_server_exceptions=False)
+    r = client.get("/")
+
+    assert r.status_code == 500
+    assert "npm run build" in r.text

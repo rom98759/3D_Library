@@ -651,7 +651,16 @@ FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
 
 @app.get("/")
 def index():
-    return FileResponse(FRONTEND_DIST / "index.html")
+    index_file = FRONTEND_DIST / "index.html"
+    if not index_file.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Frontend non buildé : lance `cd frontend && npm install && npm run build`, "
+                "puis relance webapp.py."
+            ),
+        )
+    return FileResponse(index_file)
 
 
 # Gardé conditionnel : frontend/dist est ignoré par git (cf. .gitignore), donc
