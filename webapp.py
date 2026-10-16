@@ -675,7 +675,7 @@ if (FRONTEND_DIST / "assets").exists():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--library", help="Dossier de la bibliothèque (contenant library.db)")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
     if args.library:

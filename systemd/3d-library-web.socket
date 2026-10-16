@@ -2,7 +2,7 @@
 Description=Socket pour l'interface web 3D Library Manager (écoute en permanence, zéro process derrière tant qu'il n'y a pas de connexion)
 
 [Socket]
-ListenStream=127.0.0.1:8000
+ListenStream=127.0.0.1:8765
 Accept=no
 
 [Install]
