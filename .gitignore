@@ -1,3 +1,6 @@
 __pycache__
 frontend/node_modules
 frontend/dist
+# Volumes Docker (données locales)
+data/
+.env

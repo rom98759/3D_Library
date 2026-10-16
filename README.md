@@ -7,9 +7,12 @@ d'impression estimé), tagué, miniaturé et rangé dans `~/3D_Library/`.
 Une interface web permet de parcourir/rechercher la bibliothèque et
 d'envoyer un modèle vers OrcaSlicer.
 
-Voir `docs/SPECS.md` pour la spec d'origine du projet, et
-`docs/superpowers/` pour l'historique des décisions de conception
-(spécifications et plans d'implémentation datés).
+Voir `docs/SPECS.md` pour la spec d'origine du projet.
+
+Deux façons de le lancer :
+- **Docker** (§ Démarrage rapide) — essayer en une commande, sans rien installer.
+- **systemd (natif Linux)** (§ 1 à § 8) — déploiement sans process résident :
+  watcher inotify + interface activée par socket, arrêt auto après inactivité.
 
 ## Architecture en un coup d'œil
 
@@ -23,7 +26,7 @@ scanner.py  →  ~/3D_Library/ (models/, _originals/, library.db)
                    webapp.py (FastAPI, activation par socket)
                                 │
                                 ▼
-                     http://localhost:8000
+                     http://library3d.localhost:8765
 ```
 
 Aucun process ne tourne en permanence : le watcher (`scanner.py`) est
@@ -31,6 +34,35 @@ déclenché par un `systemd --user path unit` (inotify, avec un `.timer` de
 secours toutes les 5 min), et l'interface web n'est démarrée qu'à la
 première connexion (`systemd --user socket unit`), puis s'arrête seule
 après 10 minutes d'inactivité.
+
+## Démarrage rapide (Docker)
+
+Le plus simple pour essayer, sans rien installer sur l'hôte :
+
+```bash
+cp .env.example .env          # optionnel (port, rétention corbeille)
+docker compose up --build -d
+```
+
+Puis ouvre **http://localhost:8000**.
+
+- Dépose tes fichiers `.stl` / `.3mf` / `.zip` dans `./data/incoming/`.
+- La bibliothèque persistée (`models/`, `_originals/`, `library.db`) vit dans
+  `./data/library/` (volumes bind, versionnés nulle part — cf. `.gitignore`).
+- Le catalogage initial se fait au démarrage du conteneur. Pour recataloguer
+  après avoir ajouté des fichiers :
+
+  ```bash
+  docker compose exec app python3 scanner.py --source /data/incoming --library /data/library
+  ```
+
+> **Miniatures 3D** : la génération des previews repose sur `f3d` (rendu
+> headless), non inclus dans l'image pour la garder légère. Sans lui, les
+> modèles sont catalogués normalement, simplement sans vignette. Pour le
+> déploiement natif systemd ci-dessous, `f3d` est installé sur l'hôte.
+
+Pour un déploiement Linux natif sans Docker (watcher inotify + activation par
+socket), suivre les sections ci-dessous.
 
 ## 1. Dépendances
 
@@ -135,14 +167,21 @@ journalctl --user -u 3d-library-web.service -f      # suit l'interface web
 - **Cataloguer un modèle** : dépose un `.zip`/`.stl`/`.3mf` dans `~/3D`.
   Rien d'autre à faire — le watcher s'en occupe (jusqu'à ~12s de délai pour
   laisser le temps à une copie/téléchargement de se terminer).
-- **Parcourir la bibliothèque** : ouvre `http://localhost:8000`. Démarre
+- **Parcourir la bibliothèque** : ouvre `http://library3d.localhost:8765`
+  (nom défini dans `/etc/hosts`, voir ci-dessous). Démarre
   tout seul à la première visite (quelques centaines de ms), s'arrête tout
   seul après 10 min d'inactivité.
 - **Lancer manuellement** (sans passer par systemd, ex. pour du
   développement) :
   ```bash
-  LIBRARY_DB_PATH=~/3D_Library/library.db python3 webapp.py --library ~/3D_Library --port 8000
+  LIBRARY_DB_PATH=~/3D_Library/library.db python3 webapp.py --library ~/3D_Library --port 8765
   ```
+
+- **Nom local** (une seule fois, `sudo`) : ajouter une ligne dans `/etc/hosts` :
+  ```bash
+  echo "127.0.0.1 library3d.localhost" | sudo tee -a /etc/hosts
+  ```
+  Vérifier : `getent hosts library3d.localhost` doit renvoyer `127.0.0.1`.
 
 ## 5. Interface web (frontend React)
 
@@ -155,10 +194,10 @@ production.
 ```bash
 cd frontend
 npm install
-npm run dev        # serveur de dev Vite sur http://localhost:5173, proxy /api vers http://127.0.0.1:8000
+npm run dev        # serveur de dev Vite sur http://localhost:5173, proxy /api vers http://127.0.0.1:8765
 ```
 
-Lance le backend en parallèle (`LIBRARY_DB_PATH=~/3D_Library/library.db python3 webapp.py --port 8000`)
+Lance le backend en parallèle (`LIBRARY_DB_PATH=~/3D_Library/library.db python3 webapp.py --port 8765`)
 pour que le proxy ait quelque chose à relayer.
 
 **Production** (ce que sert réellement `webapp.py`) :

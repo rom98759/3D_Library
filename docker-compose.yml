@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    image: 3d-library-manager
+    container_name: 3d-library
+    ports:
+      # Bind local uniquement (accès via http://localhost:8000). Pour exposer
+      # derrière un reverse proxy (ex. Nginx Proxy Manager), retirer 127.0.0.1.
+      - "127.0.0.1:${PORT:-8000}:8000"
+    volumes:
+      # Dépose tes .stl / .3mf / .zip ici, ils sont catalogués au démarrage
+      # (ou via : docker compose exec app python3 scanner.py --source /data/incoming --library /data/library)
+      - ./data/incoming:/data/incoming
+      # Bibliothèque persistée (models/, _originals/, library.db)
+      - ./data/library:/data/library
+    environment:
+      - LIBRARY_DB_PATH=/data/library/library.db
+      - INCOMING_DIR=/data/incoming
+      - LIBRARY_DIR=/data/library
+      - TRASH_RETENTION_DAYS=${TRASH_RETENTION_DAYS:-30}
+    restart: unless-stopped
